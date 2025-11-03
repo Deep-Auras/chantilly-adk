@@ -18,7 +18,7 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
 ### Prerequisites
 
 - Node.js 22+
-- Google Cloud Project with Firestore enabled (database ID: `chantilly-walk-the-walk`)
+- Google Cloud Project with Firestore enabled (database ID: `chantilly-agent${agentName}`)
 - Bitrix24 account with webhook permissions
 - Google Gemini API key
 
