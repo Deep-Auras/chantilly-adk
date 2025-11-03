@@ -103,7 +103,7 @@ BITRIX24_USER_ID=1
 
 # Google Cloud
 GOOGLE_CLOUD_PROJECT=your-project-id
-FIRESTORE_DATABASE_ID=chantilly-walk-the-walk
+FIRESTORE_DATABASE_ID=chantilly-agent-${AGENT_NAME}
 VERTEX_AI_LOCATION=us-central1
 
 # Gemini
@@ -717,7 +717,7 @@ node scripts/<script-name>.js
 **Requirements**:
 
 - `service_account.json` in project root with Firestore Admin permissions
-- Database ID: `chantilly-walk-the-walk` (auto-configured in scripts)
+- Database ID: `chantilly-agent-${AGENT_NAME}` (auto-configured in scripts)
 
 ## Security (OWASP LLM Top 10:2025 Compliant)
 

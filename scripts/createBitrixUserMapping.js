@@ -16,7 +16,7 @@
  *   NODE_ENV=test \
  *   GOOGLE_CLOUD_PROJECT=cx-voice-backup-383016 \
  *   GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/service_account.json" \
- *   FIRESTORE_DATABASE_ID=chantilly-walk-the-walk \
+ *   FIRESTORE_DATABASE_ID=chantilly-agent-${AGENT_NAME} \
  *   node scripts/createBitrixUserMapping.js
  */
 
@@ -24,8 +24,8 @@ const readline = require('readline');
 const admin = require('firebase-admin');
 const { logger } = require('../utils/logger');
 
-// Get database ID from environment (defaults to chantilly-walk-the-walk)
-const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'chantilly-walk-the-walk';
+// Get database ID from environment (defaults to chantilly-agent-${AGENT_NAME})
+const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'chantilly-agent-${AGENT_NAME}';
 
 // Prompt for user input with readline
 function prompt(question) {

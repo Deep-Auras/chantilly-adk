@@ -91,15 +91,15 @@ async function handleLocalAppInstall(req, res) {
                 BOT_ID: existingBot.ID,
                 OPENLINE: 'N',
                 FIELDS: {
-                  EVENT_MESSAGE_ADD: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app/webhook/bitrix24',
-                  EVENT_WELCOME_MESSAGE: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app/webhook/bitrix24',
-                  EVENT_BOT_DELETE: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app/webhook/bitrix24',
+                  EVENT_MESSAGE_ADD: '${CLOUD_RUN_SERVICE_URL}/webhook/bitrix24',
+                  EVENT_WELCOME_MESSAGE: '${CLOUD_RUN_SERVICE_URL}/webhook/bitrix24',
+                  EVENT_BOT_DELETE: '${CLOUD_RUN_SERVICE_URL}/webhook/bitrix24',
                   PROPERTIES: {
                     NAME: 'Chantilly Agent',
                     LAST_NAME: 'Gemini',
                     COLOR: 'BLUE',
                     WORK_POSITION: 'AI Assistant for Chats & Open Channels',
-                    PERSONAL_WWW: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app'
+                    PERSONAL_WWW: '${CLOUD_RUN_SERVICE_URL}'
                   }
                 }
               },
@@ -126,15 +126,15 @@ async function handleLocalAppInstall(req, res) {
                 CODE: 'Chantilly_AI_AGENT',
                 TYPE: 'B',
                 OPENLINE: 'N',
-                EVENT_MESSAGE_ADD: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app/webhook/bitrix24',
-                EVENT_WELCOME_MESSAGE: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app/webhook/bitrix24',
-                EVENT_BOT_DELETE: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app/webhook/bitrix24',
+                EVENT_MESSAGE_ADD: '${CLOUD_RUN_SERVICE_URL}/webhook/bitrix24',
+                EVENT_WELCOME_MESSAGE: '${CLOUD_RUN_SERVICE_URL}/webhook/bitrix24',
+                EVENT_BOT_DELETE: '${CLOUD_RUN_SERVICE_URL}/webhook/bitrix24',
                 PROPERTIES: {
                   NAME: 'Chantilly Agent',
                   LAST_NAME: 'Gemini',
                   COLOR: 'BLUE',
                   WORK_POSITION: 'AI Assistant for Chats & Open Channels',
-                  PERSONAL_WWW: 'https://chantilly-walk-the-walk-1044181257559.us-central1.run.app'
+                  PERSONAL_WWW: '${CLOUD_RUN_SERVICE_URL}'
                 }
               },
         function(result) {

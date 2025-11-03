@@ -12,7 +12,7 @@ rules_version = '2';
  * DEPLOYMENT:
  * firebase deploy --only firestore:rules
  * OR
- * gcloud firestore indexes create --database=lairry-walk-the-walk
+ * gcloud firestore indexes create --database=chantilly-agent-${AGENT_NAME}
  */
 
 service cloud.firestore {

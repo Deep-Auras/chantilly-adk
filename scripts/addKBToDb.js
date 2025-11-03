@@ -17,7 +17,7 @@ admin.initializeApp({
 });
 
 const { getFirestore } = require('firebase-admin/firestore');
-const db = getFirestore('chantilly-walk-the-walk');
+const db = getFirestore('chantilly-agent-${AGENT_NAME}');
 
 async function addKnowledgeBaseDocument(kbFile) {
   try {

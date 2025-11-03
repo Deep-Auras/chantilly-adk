@@ -319,7 +319,7 @@ async loadAPIConfiguration() {
 ### **Integration:**
 - [ ] Connect with existing KnowledgeManagement tool (priority 100)
 - [ ] Chain with WebSearch tool (priority 80) for fallback
-- [ ] Test with XRP Walk the Walk KML data
+- [ ] Test with Sample Event KML data
 - [ ] Verify tool priority ordering (68)
 
 ### **Testing:**

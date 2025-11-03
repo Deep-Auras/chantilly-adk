@@ -1,8 +1,8 @@
 const admin = require('firebase-admin');
 const embeddingService = require('../services/embeddingService');
 
-// Get database ID from environment (defaults to chantilly-walk-the-walk)
-const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'chantilly-walk-the-walk';
+// Get database ID from environment (defaults to chantilly-agent-${AGENT_NAME})
+const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'chantilly-agent-${AGENT_NAME}';
 
 /**
  * Test vector search functionality
@@ -11,7 +11,7 @@ const DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || 'chantilly-walk-the-wal
  *   NODE_ENV=test \
  *   GOOGLE_CLOUD_PROJECT=cx-voice-backup-383016 \
  *   GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/service_account.json" \
- *   FIRESTORE_DATABASE_ID=chantilly-walk-the-walk \
+ *   FIRESTORE_DATABASE_ID=chantilly-agent-${AGENT_NAME} \
  *   node scripts/testVectorSearch.js
  */
 

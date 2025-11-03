@@ -33,7 +33,7 @@ const SCOPES = [
 ```javascript
 // Extend existing knowledge-base documents
 {
-  title: "XRP Walk the Walk NYC 2025",
+  title: "Sample Event NYC 2025",
   content: "Event description...",
   category: "events",
   mapData: {
@@ -295,7 +295,7 @@ shouldTrigger(message) {
 
 **Scenario 1: Create Map from Knowledge Base**
 ```
-User: "Create a Google My Maps from the XRP Walk the Walk event"
+User: "Create a Google My Maps from the Sample Event event"
 Chantilly: ✅ Google My Maps created! 
 • View: https://mymaps.google.com/maps/d/1BvR...
 • Edit: https://mymaps.google.com/maps/d/edit?mid=1BvR...

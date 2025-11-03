@@ -42,7 +42,7 @@ async function initializeFirestore() {
 
     logger.info('Getting Firestore instance');
     const { getFirestore } = require('firebase-admin/firestore');
-    db = getFirestore('chantilly-walk-the-walk');
+    db = getFirestore('chantilly-agent-${AGENT_NAME}');
 
     // Configure Firestore settings
     logger.info('Configuring Firestore settings');
