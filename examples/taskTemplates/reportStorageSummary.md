@@ -79,7 +79,7 @@ async uploadReport(htmlContent, fileName, metadata = {}) {
 ### **User Access**
 ```
 User: "task status task_1728434567890_abc123"
-LAIRRY: ✅ **Task Status: COMPLETED**
+Chantilly: ✅ **Task Status: COMPLETED**
         📄 Results:
         - Attachments: 1 files
         📎 **bitrix_open_invoices_report.html** (145KB)

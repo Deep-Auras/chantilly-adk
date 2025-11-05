@@ -32,7 +32,7 @@ This document shows how to use the Child Thread Task Execution system with real 
 5. **Worker Assignment**: Assigns to available `BasicTaskWorker`
 6. **Execution**: Worker runs the template script with progress updates
 
-### Expected LAIRRY Response
+### Expected Chantilly Response
 ```
 ✅ Task created using template: Bitrix24 Open Invoices (Old) Report
 
@@ -50,7 +50,7 @@ This document shows how to use the Child Thread Task Execution system with real 
 User: "task status task_1728434567890_abc123"
 ```
 
-**LAIRRY Response:**
+**Chantilly Response:**
 ```
 🔄 **Task Status: RUNNING**
 
@@ -106,13 +106,13 @@ User: "task status task_1728434567890_abc123"
 ### Create Specific Task
 ```
 User: "create task bitrix_open_invoices_old_report"
-LAIRRY: [Shows parameter requirements and examples]
+Chantilly: [Shows parameter requirements and examples]
 ```
 
 ### List User Tasks
 ```
 User: "list my tasks"
-LAIRRY: 📝 **Your Tasks** (3 found)
+Chantilly: 📝 **Your Tasks** (3 found)
 
 1. 🔄 **bitrix_open_invoices_old_report**
    ID: `task_1728434567890_abc123`
@@ -133,7 +133,7 @@ LAIRRY: 📝 **Your Tasks** (3 found)
 ### Cancel Task
 ```
 User: "cancel task task_1728434600000_def456"
-LAIRRY: 🚫 Task cancelled: task_1728434600000_def456
+Chantilly: 🚫 Task cancelled: task_1728434600000_def456
 
 *The task has been cancelled and will not continue execution.*
 ```
@@ -141,7 +141,7 @@ LAIRRY: 🚫 Task cancelled: task_1728434600000_def456
 ### Show Available Templates
 ```
 User: "show task templates"
-LAIRRY: 📋 **Available Task Templates** (3 found)
+Chantilly: 📋 **Available Task Templates** (3 found)
 
 1. **Bitrix24 Open Invoices (Old) Report**
    ID: `bitrix_open_invoices_old_report`
@@ -162,7 +162,7 @@ LAIRRY: 📋 **Available Task Templates** (3 found)
    Duration: ~10m 0s
 ```
 
-## Integration with Existing LAIRRY Tools
+## Integration with Existing Chantilly Tools
 
 The task system works alongside existing tools:
 
@@ -195,7 +195,7 @@ This ensures simple operations execute immediately while complex operations crea
 To test the system:
 1. Add the template to Firestore: `task-templates/bitrix_open_invoices_old_report`
 2. Start a worker process: `node workers/basicTaskWorker.js`
-3. Say to LAIRRY: `"Generate a report of all open invoices"`
+3. Say to Chantilly: `"Generate a report of all open invoices"`
 4. Monitor progress: `"task status [task-id]"`
 
-The system is designed to handle complex, long-running operations while maintaining LAIRRY's conversational interface and real-time responsiveness.
+The system is designed to handle complex, long-running operations while maintaining Chantilly's conversational interface and real-time responsiveness.

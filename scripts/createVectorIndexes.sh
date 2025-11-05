@@ -3,7 +3,7 @@
 PROJECT_ID="lairry-agent"
 REGION="us-central1"
 
-echo "🚀 Creating vector indexes for LAIRRY Agent..."
+echo "🚀 Creating vector indexes for Chantilly Agent..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # 1. Knowledge Base Collection - Basic Index
