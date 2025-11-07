@@ -1433,6 +1433,7 @@ Return ONLY the corrected execution script, no explanations. The script must fix
 
       // ===== Phase 2.2: Retrieve relevant memories from past executions =====
       let relevantMemoriesSection = '';
+      let usedRepairMemoryIds = []; // Track which memories were used for repair
       if (config.REASONING_MEMORY_ENABLED) {
         try {
           const embeddingService = require('../services/embeddingService');
@@ -1445,36 +1446,44 @@ Return ONLY the corrected execution script, no explanations. The script must fix
           // Generate embedding for the error query
           const queryEmbedding = await embeddingService.embedQuery(queryText, 'RETRIEVAL_QUERY');
 
-          // Retrieve top-K similar memories
-          const topK = config.MEMORY_RETRIEVAL_TOP_K || 3;
+          // Retrieve top-K similar memories (focus on error_pattern and fix_strategy)
+          const topK = config.MEMORY_RETRIEVAL_TOP_K || 5;
           const minSuccessRate = config.MEMORY_MIN_SUCCESS_RATE || 0.5;
 
           const memories = await memoryModel.retrieveMemories(queryEmbedding, topK, {
+            categories: ['error_pattern', 'fix_strategy'], // Focus on repair-relevant memories
             minSuccessRate: minSuccessRate
           });
 
           if (memories && memories.length > 0) {
+            // Store memory IDs for success tracking
+            usedRepairMemoryIds = memories.map(m => m.id);
+
             // Format memories for inclusion in repair prompt
             const memoriesText = memories.map((memory, index) => {
-              return `${index + 1}. **${memory.title}** (Similarity: ${(memory.similarityScore * 100).toFixed(1)}%, Success Rate: ${memory.successRate ? (memory.successRate * 100).toFixed(0) + '%' : 'N/A'})
-   ${memory.description}
-
-   Strategy: ${memory.content}`;
+              return `${index + 1}. **${memory.title}** (Category: ${memory.category}, Similarity: ${(memory.similarityScore * 100).toFixed(1)}%, Success Rate: ${memory.successRate ? (memory.successRate * 100).toFixed(0) + '%' : 'N/A'})
+   Problem: ${memory.description}
+   Solution: ${memory.content}
+   Source: ${memory.source}
+   ${memory.timesRetrieved > 3 ? `(Frequently referenced: ${memory.timesRetrieved} times)` : ''}`;
             }).join('\n\n');
 
             relevantMemoriesSection = `
-RELEVANT MEMORIES FROM PAST EXECUTIONS:
+RELEVANT MEMORIES FROM PAST ERRORS AND FIXES:
 Based on similar errors encountered previously, here are proven strategies that helped resolve them:
 
 ${memoriesText}
 
-Use these insights to guide your repair strategy, but adapt them to the specific error context.
+**INSTRUCTION**: Review these past error patterns and fixes CAREFULLY. If the current error matches a known pattern, apply the proven fix strategy. If it's a new error, add defensive programming based on similar cases.
 `;
 
             logger.info('Retrieved relevant memories for repair prompt', {
               templateId: errorContext.templateId,
               errorType: errorContext.error.type,
               memoriesRetrieved: memories.length,
+              memoryIds: usedRepairMemoryIds,
+              categories: [...new Set(memories.map(m => m.category))],
+              avgSuccessRate: (memories.reduce((sum, m) => sum + (m.successRate || 0), 0) / memories.length).toFixed(2),
               topSimilarity: memories[0]?.similarityScore
             });
           } else {
@@ -2020,13 +2029,42 @@ Return ONLY the complete corrected execution script with the error fixed. No exp
         }
       }
 
+      // ✅ PHASE 3.3: Track repair memory success
+      // If repair used memories, mark them as successful since repair completed successfully
+      if (config.REASONING_MEMORY_ENABLED && usedRepairMemoryIds.length > 0) {
+        try {
+          const { getReasoningMemoryModel } = require('../models/reasoningMemory');
+          const memoryModel = getReasoningMemoryModel();
+
+          // Mark repair memories as "successful" because they helped fix the error
+          await memoryModel.updateMemoryStats(usedRepairMemoryIds, true); // true = successful
+
+          logger.info('Updated repair memory statistics after successful repair', {
+            templateId: template.templateId,
+            memoriesMarkedSuccessful: usedRepairMemoryIds.length,
+            memoryIds: usedRepairMemoryIds,
+            reason: 'Memories helped guide successful repair'
+          });
+        } catch (memoryError) {
+          logger.warn('Failed to update repair memory statistics', {
+            templateId: template.templateId,
+            error: memoryError.message
+          });
+        }
+      }
+
       // Return repaired template
       return {
         ...template,
         executionScript: cleanedScript,
         lastRepaired: new Date().toISOString(),
         repairReason: `${errorContext.error.type}: ${errorContext.error.message}`,
-        repairContext: 'execution_error'
+        repairContext: 'execution_error',
+        repairMetadata: {
+          repairedAt: new Date().toISOString(),
+          memoryIdsUsed: usedRepairMemoryIds,
+          repairMethod: 'ai_with_memory'
+        }
       };
 
     } catch (error) {
