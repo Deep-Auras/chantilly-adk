@@ -20,8 +20,8 @@ class GoogleChatService {
     if (this.initialized) return;
 
     try {
+      // Use Application Default Credentials (ADC) - no keyFile needed
       const auth = new google.auth.GoogleAuth({
-        keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
         scopes: ['https://www.googleapis.com/auth/chat.bot']
       });
 
@@ -49,22 +49,39 @@ class GoogleChatService {
       const conversationId = space.name;
       const userId = user.name;
 
-      // Process message with Gemini
+      // Process message with Gemini using processMessage
       const gemini = getGeminiService();
-      const response = await gemini.generateResponse(message.text, {
-        conversationId,
-        userId,
-        platform: 'google-chat',
-        userName: user.displayName || user.name
-      });
+
+      // Format message data for Gemini's processMessage method
+      const messageData = {
+        message: message.text,
+        userId: userId,
+        userName: user.displayName || user.name,
+        messageType: space.type === 'DM' ? 'P' : 'G', // P = Private/DM, G = Group
+        dialogId: space.name,
+        chatId: space.name,
+        messageId: message.name || `gchat-${Date.now()}`,
+        platform: 'google-chat'
+      };
+
+      const eventData = {
+        type: 'MESSAGE',
+        space: space,
+        user: user
+      };
+
+      const result = await gemini.processMessage(messageData, eventData);
+
+      // result may be null if tool handled messaging, or an object with reply
+      const responseText = result?.reply || 'Message processed successfully.';
 
       // Cache conversation history
-      await this.cacheMessage(space.name, user, message.text, response);
+      await this.cacheMessage(space.name, user, message.text, responseText);
 
       // Return card UI response
-      return this.createCardResponse(response);
+      return this.createCardResponse(responseText);
     } catch (error) {
-      logger.error('Error handling Google Chat message', { error: error.message });
+      logger.error('Error handling Google Chat message', { error: error.message, stack: error.stack });
       return {
         text: '❌ Sorry, I encountered an error processing your message.'
       };
