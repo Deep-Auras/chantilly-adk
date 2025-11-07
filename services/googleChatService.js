@@ -133,23 +133,19 @@ class GoogleChatService {
   }
 
   /**
-   * Create rich card response
+   * Create rich card response (Google Workspace Add-on format)
    */
   createCardResponse(content) {
     return {
-      cards: [{
-        header: {
-          title: '🤖 Morgan AI Assistant',
-          subtitle: 'AI Project Assistant'
-        },
-        sections: [{
-          widgets: [{
-            textParagraph: {
+      hostAppDataAction: {
+        chatDataAction: {
+          createMessageAction: {
+            message: {
               text: content
             }
-          }]
-        }]
-      }]
+          }
+        }
+      }
     };
   }
 

@@ -66,7 +66,15 @@ router.post('/webhook/google-chat', async (req, res) => {
       case 'ADDED_TO_SPACE':
         await chatService.handleSpaceJoin(transformedEvent);
         return res.json({
-          text: "👋 Hi! I'm Morgan, your AI project assistant. How can I help you today?"
+          hostAppDataAction: {
+            chatDataAction: {
+              createMessageAction: {
+                message: {
+                  text: "👋 Hi! I'm Morgan, your AI project assistant. How can I help you today?"
+                }
+              }
+            }
+          }
         });
 
       case 'REMOVED_FROM_SPACE':
