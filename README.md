@@ -41,12 +41,16 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
    # Edit .env with your credentials
    ```
 
-3. **Set up Google Cloud credentials**
+3. **Set up Google Cloud credentials (LOCAL DEVELOPMENT ONLY)**
 
    ```bash
    # Download service account key from Google Cloud Console
+   # ⚠️  IMPORTANT: This is ONLY for local development and running scripts
+   # NEVER deploy this JSON file to Cloud Run or commit it to git
    export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
    ```
+
+   **Note**: Cloud Run uses Application Default Credentials (ADC) automatically via the default compute service account. You do NOT need to set `GOOGLE_APPLICATION_CREDENTIALS` in Cloud Run environment variables.
 
 4. **Start development server**
 
@@ -696,10 +700,10 @@ Tools and services are automatically reloaded when files change in development m
 
 ### Running Scripts Locally
 
-Scripts in `/scripts` directory require Firebase Admin credentials:
+Scripts in `/scripts` directory require Firebase Admin credentials for **local execution only**:
 
 ```bash
-# Pattern for all scripts
+# Pattern for all scripts (LOCAL DEVELOPMENT ONLY)
 NODE_ENV=test \
 GOOGLE_CLOUD_PROJECT=your-project-id \
 GOOGLE_APPLICATION_CREDENTIALS="$(pwd)/service_account.json" \
@@ -708,16 +712,24 @@ node scripts/<script-name>.js
 
 **Common Scripts**:
 
+- `initFirestoreCollections.js` - Initialize all Firestore collections and create admin user
+- `deletePlaceholderDocs.js` - Remove placeholder documents after setup
 - `backfillTaskTemplates.js` - Add dual embeddings to templates
 - `backfillKnowledgeBase.js` - Add embeddings to knowledge docs
 - `initializeMemorySystem.js` - Set up ReasoningMemory
-- `createAdmin.js` - Create admin user
+- `createAdmin.js` - Create additional admin users
 - `generateToolEmbeddings.js` - Tool embeddings (deprecated)
 
-**Requirements**:
+**Requirements for Local Scripts**:
 
 - `service_account.json` in project root with Firestore Admin permissions
 - Database ID: `chantilly-agent-${AGENT_NAME}` (auto-configured in scripts)
+- **⚠️  CRITICAL**: Never deploy service account JSON keys to Cloud Run
+- **⚠️  CRITICAL**: Never commit service account JSON to git (added to .gitignore)
+
+**Cloud Run Deployment**:
+
+Cloud Run services use **Application Default Credentials (ADC)** via the default compute service account (`PROJECT_NUMBER-compute@developer.gserviceaccount.com`). No service account JSON file is needed or should be used in production.
 
 ## Security (OWASP LLM Top 10:2025 Compliant)
 

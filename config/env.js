@@ -4,13 +4,36 @@ const joi = require('joi');
 const isTest = process.env.NODE_ENV === 'test';
 
 const envSchema = joi.object({
-  // Bitrix24 Configuration
-  BITRIX24_DOMAIN: isTest ? joi.string().default('test.bitrix24.com') : joi.string().required(),
-  BITRIX24_INBOUND_WEBHOOK: isTest ? joi.string().default('https://test.bitrix24.com/rest/1/test/') : joi.string().uri().required(),
-  BITRIX24_OUTBOUND_SECRET: isTest ? joi.string().default('test-secret') : joi.string().required(),
-  BITRIX24_APP_ID: isTest ? joi.string().default('test-app-id') : joi.string().required(),
-  BITRIX24_APP_SECRET: isTest ? joi.string().default('test-app-secret') : joi.string().required(),
+  // Platform Integration Flags
+  ENABLE_BITRIX24_INTEGRATION: joi.boolean().default(false),
+  ENABLE_GOOGLE_CHAT_INTEGRATION: joi.boolean().default(false),
+  ENABLE_ASANA_INTEGRATION: joi.boolean().default(false),
+
+  // RBAC Configuration (Role-Based Access Control)
+  // Determines which platform's role system to use for user permissions
+  // Options: 'bitrix24' (default), 'google-workspace', 'hybrid'
+  // - bitrix24: Uses bitrix_users collection (original behavior)
+  // - google-workspace: Uses Google Workspace admin/space manager roles
+  // - hybrid: Checks platform-specific role (Bitrix24 for Bitrix, Google for Google Chat)
+  RBAC_SYSTEM: joi.string().valid('bitrix24', 'google-workspace', 'hybrid').default('bitrix24'),
+
+  // Bitrix24 Configuration (optional - only required if ENABLE_BITRIX24_INTEGRATION=true)
+  BITRIX24_DOMAIN: joi.string().optional(),
+  BITRIX24_INBOUND_WEBHOOK: joi.string().uri().optional(),
+  BITRIX24_OUTBOUND_SECRET: joi.string().optional(),
+  BITRIX24_APP_ID: joi.string().optional(),
+  BITRIX24_APP_SECRET: joi.string().optional(),
   BITRIX24_USER_ID: joi.string().default('1'),
+
+  // Google Workspace Chat Configuration (optional - only required if ENABLE_GOOGLE_CHAT_INTEGRATION=true)
+  GOOGLE_CHAT_PROJECT_ID: joi.string().optional(),
+  GOOGLE_CHAT_PROJECT_NUMBER: joi.string().optional(),
+
+  // Asana Configuration (optional - only required if ENABLE_ASANA_INTEGRATION=true)
+  ASANA_ACCESS_TOKEN: joi.string().optional(),
+  ASANA_WORKSPACE_GID: joi.string().optional(),
+  ASANA_BOT_EMAIL: joi.string().email().optional(),
+  ASANA_WEBHOOK_SECRET: joi.string().optional(),
 
   // Gemini AI Configuration
   GEMINI_API_KEY: isTest ? joi.string().default('test-key') : joi.string().required(),
@@ -33,7 +56,7 @@ const envSchema = joi.object({
   PORT: joi.number().default(8080),
   NODE_ENV: joi.string().valid('development', 'production', 'test').default('development'),
   SERVICE_NAME: joi.string().default('bitrix24-gemini-agent'),
-  CLOUD_RUN_SERVICE_URL: isTest ? joi.string().default('https://test.example.com') : joi.string().uri().required(),
+  CLOUD_RUN_SERVICE_URL: joi.string().uri().default('https://placeholder.run.app'),
 
   // Cloud Tasks Configuration
   CLOUD_TASKS_LOCATION: joi.string().default('us-central1'),

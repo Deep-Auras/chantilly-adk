@@ -28,7 +28,7 @@ class ComplexTaskManagerTool extends BaseTool {
     super(context);
 
     this.name = 'ComplexTaskManager';
-    this.description = 'Create and manage complex multi-step tasks that require long execution times, progress tracking, and worker processes. Use for operations like financial reports, bulk data processing, comprehensive analysis, or multi-step workflows. CRITICAL: When user requests ANY kind of report, invoice report, or analysis, you MUST ALWAYS use action="create" with auto-detection. NOT for template management (use TaskTemplateManager tool for modifying template definitions). NOT for simple searches or single tool operations.';
+    this.description = 'Create and manage complex INTERNAL multi-step tasks that require long execution times, progress tracking, and worker processes. Use for operations like financial reports, bulk data processing, comprehensive analysis, or multi-step workflows that execute CODE. CRITICAL: When user requests ANY kind of report, invoice report, or data analysis, you MUST ALWAYS use action="create" with auto-detection. DO NOT use for: (1) ANY Asana, Bitrix24, or external platform task operations - those have dedicated tools, (2) Template management - use TaskTemplateManager tool, (3) Simple searches or single tool operations. This tool is ONLY for executing multi-step JavaScript code that generates reports or processes data internally.';
     this.userDescription = 'Manage complex multi-step tasks and workflows';
     this.category = 'productivity';
     this.version = '1.0.0';

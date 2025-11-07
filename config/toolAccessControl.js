@@ -19,10 +19,15 @@ const TOOL_ACCESS_CONTROL = {
   // ===== ALL USERS =====
   // General communication and information tools
 
+  // Bitrix24 tools (only if ENABLE_BITRIX24_INTEGRATION=true)
   BitrixChatSummary: ['user', 'admin'],
+
+  // Asana tools (only if ENABLE_ASANA_INTEGRATION=true)
+  AsanaTaskManager: ['user', 'admin'],
+
+  // General tools (always available)
   DrawioGenerator: ['user', 'admin'],
   GoogleMapsPlaces: ['user', 'admin'],
-  reminder: ['user', 'admin'],
   weather: ['user', 'admin'],
   WebBrowser: ['user', 'admin'],
   WebSearch: ['user', 'admin'],
@@ -30,7 +35,10 @@ const TOOL_ACCESS_CONTROL = {
   // ===== ADMIN ONLY =====
   // Tools that create/modify data or access sensitive information
 
+  // Bitrix24 admin tools (only if ENABLE_BITRIX24_INTEGRATION=true)
   BitrixUserManagement: ['admin'],
+
+  // General admin tools (always available)
   ComplexTaskManager: ['admin'],
   KnowledgeManagement: ['admin'],
   SimpleTaskCreator: ['admin'],

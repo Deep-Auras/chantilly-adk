@@ -16,13 +16,22 @@ const {
   outputValidation
 } = require('./middleware/security');
 const { initializeFirestore } = require('./config/firestore');
-const bitrixWebhook = require('./webhooks/bitrix');
 const healthCheck = require('./utils/healthCheck');
 const agentRoutes = require('./routes/agent');
 const authRoutes = require('./routes/auth');
 const knowledgeRoutes = require('./routes/knowledge');
 const workerRoutes = require('./routes/worker');
 const adminRoutes = require('./routes/admin');
+
+// Conditional platform integrations
+const ENABLE_BITRIX24 = process.env.ENABLE_BITRIX24_INTEGRATION === 'true';
+const ENABLE_GOOGLE_CHAT = process.env.ENABLE_GOOGLE_CHAT_INTEGRATION === 'true';
+const ENABLE_ASANA = process.env.ENABLE_ASANA_INTEGRATION === 'true';
+
+// Load platform-specific routes conditionally
+const bitrixWebhook = ENABLE_BITRIX24 ? require('./webhooks/bitrix') : null;
+const googleChatRoutes = ENABLE_GOOGLE_CHAT ? require('./routes/googleChat') : null;
+const asanaRoutes = ENABLE_ASANA ? require('./routes/asana') : null;
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -92,8 +101,8 @@ app.use((req, res, next) => {
     });
   }
 
-  // Log EVERY request to catch Bitrix24 bot events
-  if (req.path.includes('webhook') || req.path.includes('bitrix') || req.method === 'GET') {
+  // Log webhook requests with full details
+  if (req.path.includes('webhook') || req.method === 'GET') {
     logger.info('INCOMING REQUEST', {
       method: req.method,
       fullUrl: req.originalUrl,
@@ -156,6 +165,16 @@ async function initializeServices() {
     hasErrors = true;
   }
 
+  // Try Gemini service initialization
+  try {
+    const { initializeGeminiService } = require('./services/gemini');
+    await initializeGeminiService();
+    logger.info('Gemini service initialized');
+  } catch (error) {
+    logger.error('Failed to initialize Gemini service', error);
+    hasErrors = true;
+  }
+
   // Try custom tools loading - this is critical for the current issue
   try {
     const { loadTools } = require('./lib/toolLoader');
@@ -166,14 +185,48 @@ async function initializeServices() {
     hasErrors = true;
   }
 
-  // Try queue manager initialization
-  try {
-    const { initializeQueue } = require('./services/bitrix24-queue');
-    await initializeQueue();
-    logger.info('Queue manager initialized');
-  } catch (error) {
-    logger.error('Failed to initialize queue manager', error);
-    hasErrors = true;
+  // Try Bitrix24 queue manager initialization (conditional)
+  if (ENABLE_BITRIX24) {
+    try {
+      const { initializeQueue } = require('./services/bitrix24-queue');
+      await initializeQueue();
+      logger.info('Bitrix24 queue manager initialized');
+    } catch (error) {
+      logger.error('Failed to initialize Bitrix24 queue manager', error);
+      hasErrors = true;
+    }
+  } else {
+    logger.info('Bitrix24 integration disabled - skipping queue initialization');
+  }
+
+  // Try Google Chat service initialization (conditional)
+  if (ENABLE_GOOGLE_CHAT) {
+    try {
+      const { getGoogleChatService } = require('./services/googleChatService');
+      const chatService = getGoogleChatService();
+      await chatService.initialize();
+      logger.info('Google Chat service initialized');
+    } catch (error) {
+      logger.error('Failed to initialize Google Chat service', error);
+      hasErrors = true;
+    }
+  } else {
+    logger.info('Google Chat integration disabled - skipping initialization');
+  }
+
+  // Try Asana service initialization (conditional)
+  if (ENABLE_ASANA) {
+    try {
+      const { getAsanaService } = require('./services/asanaService');
+      const asanaService = getAsanaService();
+      await asanaService.initialize();
+      logger.info('Asana service initialized');
+    } catch (error) {
+      logger.error('Failed to initialize Asana service', error);
+      hasErrors = true;
+    }
+  } else {
+    logger.info('Asana integration disabled - skipping initialization');
   }
 
   // Try 3CX authentication service initialization (optional)
@@ -231,71 +284,32 @@ app.use('/knowledge', knowledgeRoutes);
 // Worker routes for Cloud Tasks background processing
 app.use('/worker', workerRoutes);
 
-// SECURITY FIX: Webhook-specific rate limiter
-const webhookLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 100, // 100 requests per minute per IP
-  message: {
-    error: 'Too many webhook requests',
-    retryAfter: '60 seconds'
-  },
-  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
-  legacyHeaders: false, // Disable `X-RateLimit-*` headers
+// Platform-specific routes (conditional)
+if (ENABLE_GOOGLE_CHAT && googleChatRoutes) {
+  app.use('/', googleChatRoutes);
+  logger.info('Google Chat routes registered');
+}
 
-  // Custom key generator using IP + webhook signature
-  keyGenerator: (req) => {
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+if (ENABLE_ASANA && asanaRoutes) {
+  app.use('/', asanaRoutes);
+  logger.info('Asana routes registered');
+}
 
-    // Include webhook signature if present for better tracking
-    const signature = req.headers['x-bitrix24-signature'] || '';
-    const signaturePrefix = signature.substring(0, 10);
-
-    return `webhook-${ip}-${signaturePrefix}`;
-  },
-
-  // Custom handler for rate limit exceeded
-  handler: (req, res) => {
-    logger.warn('Webhook rate limit exceeded', {
-      ip: req.ip,
-      signature: req.headers['x-bitrix24-signature']?.substring(0, 20),
-      path: req.path,
-      method: req.method
-    });
-
-    res.status(429).json({
-      error: 'Too many webhook requests',
-      message: 'Rate limit exceeded. Please retry after 60 seconds.',
-      retryAfter: 60
-    });
-  },
-
-  // Skip rate limiting for successful validation (optional)
-  skip: (req) => {
-    // Could skip if webhook signature is valid and from known domain
-    return false; // For now, rate limit all requests
-  }
-});
-
-// Raw request logger for debugging webhook issues - log ANY method
-app.all('/webhook/bitrix24', (req, res, next) => {
-  logger.info('Raw webhook request received', {
-    method: req.method,
-    path: req.path,
-    query: req.query,
-    headers: req.headers,
-    body: req.body,
-    contentType: req.get('Content-Type'),
-    userAgent: req.get('User-Agent'),
-    requestId: req.id
+if (ENABLE_BITRIX24 && bitrixWebhook) {
+  // Bitrix24 webhook endpoint with rate limiting
+  const webhookLimiter = require('express-rate-limit')({
+    windowMs: 60 * 1000,
+    max: 100,
+    keyGenerator: (req) => {
+      const ip = req.ip || req.connection.remoteAddress || 'unknown';
+      const signature = req.headers['x-bitrix24-signature'] || '';
+      return `webhook-${ip}-${signature.substring(0, 10)}`;
+    }
   });
-  next();
-});
 
-// Bitrix24 webhook endpoint - handles ALL events including installation
-app.all('/webhook/bitrix24',
-  webhookLimiter,  // SECURITY FIX: Add rate limiting
-  bitrixWebhook
-);
+  app.all('/webhook/bitrix24', webhookLimiter, bitrixWebhook);
+  logger.info('Bitrix24 routes registered');
+}
 
 // 404 handler
 app.use((req, res) => {
@@ -362,15 +376,17 @@ process.on('SIGTERM', async () => {
   try {
     // SECURITY FIX: Clear all intervals and cleanup resources
 
-    // 1. Cleanup webhook cache and intervals
-    try {
-      const webhookCleanup = require('./webhooks/bitrix').cleanup;
-      if (webhookCleanup) {
-        webhookCleanup();
-        logger.info('Webhook cache cleanup completed');
+    // 1. Cleanup Bitrix24 webhook cache (if enabled)
+    if (ENABLE_BITRIX24) {
+      try {
+        const webhookCleanup = require('./webhooks/bitrix').cleanup;
+        if (webhookCleanup) {
+          webhookCleanup();
+          logger.info('Bitrix24 webhook cache cleanup completed');
+        }
+      } catch (error) {
+        logger.error('Bitrix24 webhook cleanup failed', { error: error.message });
       }
-    } catch (error) {
-      logger.error('Webhook cleanup failed', { error: error.message });
     }
 
     // 2. Cleanup GeminiService intervals
@@ -386,7 +402,7 @@ process.on('SIGTERM', async () => {
       logger.debug('GeminiService cleanup skipped', { reason: error.message });
     }
 
-    // 3. Cleanup tool registry
+    // 2. Cleanup tool registry
     try {
       const { getToolLoader } = require('./lib/toolLoader');
       const toolLoader = getToolLoader();
@@ -398,7 +414,7 @@ process.on('SIGTERM', async () => {
       logger.error('Tool registry cleanup failed', { error: error.message });
     }
 
-    // 4. Shutdown TaskOrchestrator if initialized
+    // 3. Shutdown TaskOrchestrator if initialized
     try {
       const { getTaskOrchestrator } = require('./services/taskOrchestrator');
       const orchestrator = getTaskOrchestrator();
@@ -410,7 +426,7 @@ process.on('SIGTERM', async () => {
       logger.error('TaskOrchestrator shutdown failed', { error: error.message });
     }
 
-    // 5. Cleanup 3CX services if initialized
+    // 4. Cleanup 3CX services if initialized
     try {
       const { getThreeCXQueueManager } = require('./services/threecx-queue');
       const threeCXQueue = getThreeCXQueueManager();
@@ -423,7 +439,7 @@ process.on('SIGTERM', async () => {
       logger.debug('3CX queue cleanup skipped', { reason: error.message });
     }
 
-    // 6. Close HTTP server
+    // 5. Close HTTP server
     server.close(() => {
       logger.info('HTTP server closed');
       process.exit(0);

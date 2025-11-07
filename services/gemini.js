@@ -92,7 +92,7 @@ class GeminiService {
 
   async processMessage(messageData, eventData) {
     let stopTyping = null;
-    
+
     try {
       // Check if agent should respond based on personality and triggers
       const shouldRespond = await this.shouldAgentRespond(messageData.message, messageData.userId, messageData.messageType);
@@ -101,8 +101,13 @@ class GeminiService {
         return null;
       }
 
-      // Start persistent typing indicator
-      stopTyping = await this.startTypingIndicator(messageData.dialogId);
+      // Typing indicators only work on Bitrix24 (Google Chat API doesn't support bot typing status)
+      const ENABLE_BITRIX24 = process.env.ENABLE_BITRIX24_INTEGRATION === 'true';
+      const isBitrix24Message = !messageData.platform || messageData.platform === 'bitrix24';
+
+      if (ENABLE_BITRIX24 && isBitrix24Message) {
+        stopTyping = await this.startTypingIndicator(messageData.dialogId);
+      }
 
       // Apply response delay for natural feeling
       const delay = this.personalityService.getResponseDelay();
@@ -188,17 +193,59 @@ class GeminiService {
       const registry = getToolRegistry();
       const { getUserRoleService } = require('./userRoleService');
 
-      // Fetch user role using Bitrix user ID (with caching)
+      // Determine user role based on RBAC_SYSTEM configuration
       let userRole = 'user'; // Default to least privilege
-      try {
-        const userRoleService = getUserRoleService();
-        userRole = await userRoleService.getUserRole(sanitizedMessageData.userId);
-      } catch (error) {
-        logger.error('Failed to fetch user role, defaulting to user', {
+      const rbacSystem = config.RBAC_SYSTEM || 'bitrix24'; // Default to original behavior
+      const isGoogleChat = sanitizedMessageData.platform === 'google-chat';
+
+      logger.info('RBAC system configured', {
+        rbacSystem: rbacSystem,
+        platform: sanitizedMessageData.platform,
+        userId: sanitizedMessageData.userId
+      });
+
+      if (rbacSystem === 'bitrix24') {
+        // ORIGINAL BEHAVIOR: Always use Bitrix24 RBAC (backward compatible)
+        try {
+          const userRoleService = getUserRoleService();
+          userRole = await userRoleService.getUserRole(sanitizedMessageData.userId);
+        } catch (error) {
+          logger.error('Failed to fetch Bitrix24 user role, defaulting to user', {
+            userId: sanitizedMessageData.userId,
+            error: error.message
+          });
+          // Continue with default 'user' role (fail-safe)
+        }
+      } else if (rbacSystem === 'google-workspace') {
+        // Google Workspace RBAC: Use Google Chat roles for all messages
+        userRole = sanitizedMessageData.userRole || 'user';
+        logger.info('Using Google Workspace RBAC for all messages', {
           userId: sanitizedMessageData.userId,
-          error: error.message
+          userRole: userRole
         });
-        // Continue with default 'user' role (fail-safe)
+      } else if (rbacSystem === 'hybrid') {
+        // Hybrid RBAC: Platform-specific role detection
+        if (isGoogleChat) {
+          // For Google Chat messages, use Google Workspace roles
+          userRole = sanitizedMessageData.userRole || 'user';
+          logger.info('Using Google Workspace user role (hybrid mode)', {
+            userId: sanitizedMessageData.userId,
+            userRole: userRole
+          });
+        } else {
+          // For Bitrix24 messages, use Bitrix24 RBAC
+          try {
+            const userRoleService = getUserRoleService();
+            userRole = await userRoleService.getUserRole(sanitizedMessageData.userId);
+          } catch (error) {
+            logger.error('Failed to fetch Bitrix24 user role, defaulting to user', {
+              userId: sanitizedMessageData.userId,
+              platform: sanitizedMessageData.platform,
+              error: error.message
+            });
+            // Continue with default 'user' role (fail-safe)
+          }
+        }
       }
 
       // Get role-filtered tools (RBAC)

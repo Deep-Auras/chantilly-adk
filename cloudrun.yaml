@@ -39,7 +39,7 @@ metadata:
     # Allow unauthenticated access (webhook endpoint is public)
     # Individual routes can require authentication via middleware
     run.googleapis.com/ingress: all
-    run.googleapis.com/description: "Chantilly Agent - AI-powered Bitrix24 integration"
+    run.googleapis.com/description: "Morgan AI Agent - Multi-platform AI assistant"
 
 spec:
   template:
@@ -61,8 +61,10 @@ spec:
         run.googleapis.com/execution-environment: gen2
 
     spec:
-      # Service account with minimal permissions
-      serviceAccountName: chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com
+      # Service account - using default Compute Engine service account
+      # Format: PROJECT_NUMBER-compute@developer.gserviceaccount.com
+      # Cloud Run uses this automatically if serviceAccountName is not specified
+      # Grant required roles to this SA via IAM (see permissions section below)
 
       # Container timeout (15 minutes max for complex tasks)
       timeoutSeconds: 900
@@ -70,7 +72,7 @@ spec:
       containers:
       - name: chantilly-agent
         # Image from Google Container Registry or Artifact Registry
-        image: gcr.io/cx-voice-backup-383016/chantilly-agent:latest
+        image: gcr.io/chantilly-agent-morgan/chantilly-agent:latest
 
         ports:
         - name: http1
@@ -99,7 +101,24 @@ spec:
           value: "info"
 
         - name: GOOGLE_CLOUD_PROJECT
-          value: "cx-voice-backup-383016"
+          value: "chantilly-agent-morgan"
+
+        - name: FIRESTORE_DATABASE_ID
+          value: "(default)"
+
+        # Platform Integration Flags
+        - name: ENABLE_BITRIX24_INTEGRATION
+          value: "false"
+
+        - name: ENABLE_GOOGLE_CHAT_INTEGRATION
+          value: "true"
+
+        - name: ENABLE_ASANA_INTEGRATION
+          value: "true"
+
+        # Agent Identity
+        - name: AGENT_NAME
+          value: "morgan"
 
         # Feature flags
         - name: USE_DB_PROMPTS
@@ -141,11 +160,39 @@ spec:
         - name: GEMINI_API_KEY
           value: "YOUR_GEMINI_API_KEY"  # Replace via console
 
-        - name: BITRIX24_INBOUND_WEBHOOK
-          value: "YOUR_BITRIX24_WEBHOOK_URL"  # Replace via console
+        # Google Workspace Chat Configuration
+        - name: GOOGLE_CHAT_PROJECT_ID
+          value: "chantilly-agent-morgan"
 
-        - name: BITRIX24_OUTBOUND_SECRET
-          value: "YOUR_BITRIX24_SECRET"  # Replace via console
+        - name: GOOGLE_CHAT_PROJECT_NUMBER
+          value: "YOUR_PROJECT_NUMBER"  # Replace via console
+
+        # NOTE: GOOGLE_APPLICATION_CREDENTIALS not needed in Cloud Run
+        # Application Default Credentials (ADC) automatically uses the service account
+
+        # Asana Configuration
+        - name: ASANA_ACCESS_TOKEN
+          value: "YOUR_ASANA_PAT_TOKEN"  # Replace via console
+
+        - name: ASANA_WORKSPACE_GID
+          value: "YOUR_WORKSPACE_GID"  # Replace via console
+
+        - name: ASANA_BOT_EMAIL
+          value: "morgan-bot@yourdomain.com"  # Replace via console
+
+        - name: ASANA_WEBHOOK_SECRET
+          value: "YOUR_WEBHOOK_SECRET"  # Replace via console
+
+        # JWT Authentication
+        - name: JWT_SECRET
+          value: "YOUR_JWT_SECRET"  # Replace via console (generate a long random string)
+
+        - name: JWT_EXPIRATION
+          value: "24h"
+
+        # Security
+        - name: ALLOWED_ORIGINS
+          value: "https://chat.google.com,https://app.asana.com"
 
         # Health check configuration
         livenessProbe:
@@ -190,58 +237,57 @@ spec:
 # Service Account Permissions (IAM)
 # =============================================================================
 #
-# Grant these permissions to chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com:
+# Runtime Service Account: Default Compute Engine Service Account
+# Format: PROJECT_NUMBER-compute@developer.gserviceaccount.com
+# Example: 123456789012-compute@developer.gserviceaccount.com
 #
-# 1. Firestore access:
-#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
-#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
-#      --role="roles/datastore.user"
+# REQUIRED: Grant these permissions via Cloud Console
 #
-# 2. Secret Manager access (read secrets):
-#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
-#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
-#      --role="roles/secretmanager.secretAccessor"
+# Steps:
+# 1. Go to Cloud Console > IAM & Admin > IAM
+# 2. Find the Compute Engine default service account (ends with -compute@developer.gserviceaccount.com)
+# 3. Click the Edit button (pencil icon)
+# 4. Add the following roles:
 #
-# 3. Cloud Storage access (for file uploads):
-#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
-#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
-#      --role="roles/storage.objectAdmin"
+#    ✅ Cloud Datastore User
+#       Why: Read/write access to Firestore database
 #
-# 4. Logging and Monitoring:
-#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
-#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
-#      --role="roles/logging.logWriter"
+#    ✅ Vertex AI User
+#       Why: Access Gemini API and embeddings service
 #
-#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
-#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
-#      --role="roles/monitoring.metricWriter"
+#    ✅ Logs Writer
+#       Why: Write application logs to Cloud Logging
 #
-# 5. Vertex AI access (for Gemini and embeddings):
-#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
-#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
-#      --role="roles/aiplatform.user"
+#    ✅ Cloud Tasks Enqueuer
+#       Why: Create background tasks for async processing
+#
+# 5. Click Save
+#
+# Note: The default compute service account may already have some of these roles.
+# The application uses Application Default Credentials (ADC) which automatically
+# inherits permissions from this service account when running on Cloud Run.
 #
 # =============================================================================
-# Secrets Setup (Secret Manager)
+# Environment Variables Setup
 # =============================================================================
 #
-# Create secrets:
+# Set these variables via Cloud Run Console after deployment:
 #
-# echo -n "YOUR_GEMINI_API_KEY" | gcloud secrets create chantilly-gemini-api-key \
-#   --data-file=- --replication-policy="automatic"
+# 1. Go to Cloud Run > chantilly-agent-morgan > Edit & Deploy
+# 2. Go to Variables & Secrets tab
+# 3. Set the following environment variables:
 #
-# echo -n "YOUR_BITRIX24_WEBHOOK_URL" | gcloud secrets create chantilly-bitrix24-webhook \
-#   --data-file=- --replication-policy="automatic"
+#    Required:
+#    - GEMINI_API_KEY: Your Gemini API key from Google AI Studio
+#    - GOOGLE_CHAT_PROJECT_NUMBER: Your GCP project number
+#    - ASANA_ACCESS_TOKEN: Asana bot user PAT token
+#    - ASANA_WORKSPACE_GID: Your Asana workspace GID
+#    - ASANA_BOT_EMAIL: Your Asana bot user email
+#    - ASANA_WEBHOOK_SECRET: Random secret for webhook verification
+#    - JWT_SECRET: Random 64+ character string for JWT signing
 #
-# echo -n "YOUR_BITRIX24_SECRET" | gcloud secrets create chantilly-bitrix24-secret \
-#   --data-file=- --replication-policy="automatic"
-#
-# Grant service account access to secrets:
-#
-# for secret in chantilly-gemini-api-key chantilly-bitrix24-webhook chantilly-bitrix24-secret; do
-#   gcloud secrets add-iam-policy-binding $secret \
-#     --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
-#     --role="roles/secretmanager.secretAccessor"
-# done
+# NOTE: GOOGLE_APPLICATION_CREDENTIALS is NOT needed in Cloud Run.
+# The application automatically uses Application Default Credentials (ADC)
+# which inherits from the default Compute Engine service account.
 #
 # =============================================================================

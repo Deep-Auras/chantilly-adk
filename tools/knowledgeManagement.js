@@ -1220,72 +1220,13 @@ class KnowledgeManagementTool extends BaseTool {
     return score;
   }
 
-  // Check if this tool should trigger based on message content
-  async shouldTrigger(message) {
-    const triggers = [
-      /add.{0,20}knowledge/i,
-      /create.{0,20}knowledge/i,
-      /update.{0,20}knowledge/i,
-      /delete.{0,20}knowledge/i,
-      /knowledge.{0,20}base/i,
-      /save.{0,20}information/i,
-      /document.{0,20}this/i,
-      /remember.{0,20}this/i,
-      // List/show/browse patterns
-      /list.{0,20}knowledge/i,
-      /show.{0,20}knowledge/i,
-      /knowledge.{0,20}list/i,
-      /what.{0,20}knowledge/i,
-      /browse.{0,20}knowledge/i,
-      /view.{0,20}knowledge/i,
-      // Update/modify/append patterns - flexible matching
-      /append.*document/i,
-      /modify.*document/i,
-      /edit.*document/i,
-      /change.*document/i,
-      /update.*document/i,
-      /append.*content/i,
-      /add.*content.*document/i,
-      // Additional natural language patterns
-      /add.*to.*document/i,
-      /put.*in.*document/i,
-      /include.*in.*document/i,
-      // Search and retrieval patterns for existing information
-      /provide.*link/i,
-      /provide.*links/i,
-      /provide me.*link/i,
-      /provide me.*links/i,
-      /provide me link to/i,
-      /provide me links to/i,
-      /provide me the link/i,
-      /provide me the links/i,
-      /give me.*link/i,
-      /give me.*links/i,
-      /give me the.*link/i,
-      /give me the.*links/i,
-      /get.*link/i,
-      /get.*links/i,
-      /show.*link/i,
-      /show.*links/i,
-      /find.*link/i,
-      /find.*links/i,
-      /walk.*walk.*link/i,
-      /map.*link/i,
-      /event.*link/i,
-      /xrp.*link/i,
-      /provide.*map/i,
-      /get.*map/i,
-      /show.*map/i,
-      /find.*map/i,
-      /search.*knowledge/i,
-      /find.*knowledge/i,
-      /look.*up/i,
-      /retrieve.*information/i,
-      /get.*information/i,
-      /find.*information/i
-    ];
-
-    return triggers.some(trigger => trigger.test(message));
+  // SEMANTIC TRIGGER (CRITICAL - See CLAUDE.md)
+  // DO NOT use keyword/regex matching - let Gemini's function calling handle triggering
+  // The description field clearly articulates when to use this tool conceptually
+  async shouldTrigger() {
+    // ❌ REMOVED 65+ regex patterns - brittle, breaks on natural language variations
+    // ✅ Gemini's function calling uses the semantic description field for intent detection
+    return false; // Let Gemini handle all triggering via description
   }
 }
 
