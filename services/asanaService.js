@@ -215,10 +215,24 @@ class AsanaService {
         }
       };
 
+      // If section provided, add it to memberships during creation
+      if (data.sectionGid) {
+        body.data.memberships = [
+          {
+            project: projectGid,
+            section: data.sectionGid
+          }
+        ];
+      }
+
       const result = await this.tasksApi.createTask(body);
       const task = result.data;
 
-      logger.info('Created Asana task', { gid: task.gid, name: task.name });
+      logger.info('Created Asana task', {
+        gid: task.gid,
+        name: task.name,
+        section: data.sectionGid || 'default'
+      });
       return task;
     } catch (error) {
       logger.error('Failed to create Asana task', { error: error.message });

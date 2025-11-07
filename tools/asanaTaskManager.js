@@ -95,31 +95,42 @@ class AsanaTaskManager extends BaseTool {
             return `❌ Either projectGid or projectName must be provided`;
           }
 
-          // Create the task
+          // Resolve section GID if section name provided
+          let sectionGid = null;
+          if (args.sectionName) {
+            const section = await asana.getSectionByName(projectGid, args.sectionName);
+            if (section) {
+              sectionGid = section.gid;
+              this.log('info', 'Resolved section by name', {
+                sectionName: args.sectionName,
+                sectionGid
+              });
+            } else {
+              this.log('warn', 'Section not found', { sectionName: args.sectionName });
+            }
+          }
+
+          // Create the task with section in memberships
           const task = await asana.createTask(projectGid, {
             name: args.name,
             notes: args.notes,
             assignee: args.assignee,
-            dueDate: args.dueDate
+            dueDate: args.dueDate,
+            sectionGid: sectionGid
           });
 
-          // Move to section if specified
+          // Build response
+          let response = `✅ Created task: ${task.name}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}`;
+
           if (args.sectionName) {
-            const section = await asana.getSectionByName(projectGid, args.sectionName);
-            if (section) {
-              await asana.moveTaskToSection(task.gid, section.gid);
-              this.log('info', 'Moved task to section', {
-                taskGid: task.gid,
-                sectionName: args.sectionName,
-                sectionGid: section.gid
-              });
-              return `✅ Created task: ${task.name}\nSection: ${args.sectionName}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}`;
+            if (sectionGid) {
+              response = `✅ Created task: ${task.name}\nSection: ${args.sectionName}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}`;
             } else {
-              return `✅ Created task: ${task.name}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}\n⚠️ Warning: Section "${args.sectionName}" not found, task created in default section`;
+              response += `\n⚠️ Warning: Section "${args.sectionName}" not found, task created in default section`;
             }
           }
 
-          return `✅ Created task: ${task.name}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}`;
+          return response;
 
         case 'get':
           const taskDetails = await asana.getTask(args.taskGid);
