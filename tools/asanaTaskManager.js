@@ -5,7 +5,7 @@ class AsanaTaskManager extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'AsanaTaskManager';
-    this.description = 'Manage tasks in Asana: create, update, search, and complete tasks with full access to subtasks, descriptions, and attachments';
+    this.description = 'Create, update, search, and complete tasks in Asana when user EXPLICITLY requests task management operations. Use ONLY when user asks to: create/add task, update task, find/search tasks, mark complete, or add comments. DO NOT use for conversational questions about identity, organization info, or general chat. This is strictly for task management operations.';
     this.priority = 80;
 
     this.parameters = {
@@ -53,11 +53,14 @@ class AsanaTaskManager extends BaseTool {
     };
   }
 
-  shouldTrigger(message) {
-    const keywords = ['asana', 'task', 'project', 'assign', 'due date', 'subtask'];
-    return keywords.some(keyword =>
-      message.toLowerCase().includes(keyword)
-    );
+  shouldTrigger() {
+    // Semantic trigger - rely on Gemini's function calling to detect task management intent
+    // The description clearly articulates when to use this tool conceptually
+    // No brittle keyword matching - Gemini understands the CONCEPT of task management
+
+    // This method is primarily for backward compatibility with BaseTool pattern
+    // The real semantic detection happens in the description field above
+    return false; // Let Gemini's function calling handle all triggering
   }
 
   async execute(args) {
@@ -88,6 +91,9 @@ class AsanaTaskManager extends BaseTool {
           return `✅ Comment added to task`;
 
         case 'search':
+          if (!args.searchParams || typeof args.searchParams !== 'object') {
+            return '❌ Search requires valid searchParams object (e.g., {text: "task name", assignee: "user@example.com"})';
+          }
           const tasks = await asana.searchTasks(args.searchParams);
           return this.formatTaskList(tasks);
 

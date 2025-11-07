@@ -51,73 +51,13 @@ class WebSearchTool extends BaseTool {
     this.requestTimeout = 15000; // 15 seconds timeout per request
   }
 
-  async shouldTrigger(message, toolContext = {}) {
-    try {
-      // High priority triggers - require explicit web/online context
-      const urgentKeywords = [
-        'search web', 'search online', 'look up online', 'find online',
-        'web search', 'google it', 'search google', 'duckduckgo',
-        'search for online', 'find on web', 'web lookup'
-      ];
-
-      // Current information keywords that suggest web search
-      const currentInfoKeywords = [
-        'current', 'latest', 'recent', 'today', 'now', 'breaking'
-      ];
-
-      // Information request keywords
-      const infoKeywords = [
-        'what is', 'who is', 'when did', 'where is', 'how to',
-        'latest news', 'current price', 'stock price', 'news about'
-      ];
-
-      // Date-related keywords that suggest need for current info
-      const dateKeywords = [
-        '2024', '2025', 'this year', 'last month', 'yesterday',
-        'last week', 'this month', 'recently'
-      ];
-
-      const lowerMessage = message.toLowerCase();
-
-      // Check for explicit web search requests
-      if (urgentKeywords.some(keyword => lowerMessage.includes(keyword))) {
-        this.log('info', 'Web search triggered by urgent keywords', {
-          message: message.substring(0, 100),
-          matchedKeywords: urgentKeywords.filter(k => lowerMessage.includes(k))
-        });
-        return true;
-      }
-
-      // Check if knowledge base search failed or returned insufficient results
-      const knowledgeResults = toolContext.knowledgeResults || [];
-      const hasInsufficientKnowledge = knowledgeResults.length === 0 || 
-        (knowledgeResults.length < 2 && 
-         knowledgeResults.every(r => (r.relevanceScore || 0) < 0.6));
-
-      if (hasInsufficientKnowledge && 
-          infoKeywords.some(keyword => lowerMessage.includes(keyword))) {
-        this.log('info', 'Web search triggered by insufficient knowledge base results', {
-          knowledgeResultsCount: knowledgeResults.length,
-          averageRelevance: knowledgeResults.reduce((sum, r) => sum + (r.relevanceScore || 0), 0) / Math.max(knowledgeResults.length, 1)
-        });
-        return true;
-      }
-
-      // Check for requests about recent/current information
-      if ((infoKeywords.some(k => lowerMessage.includes(k)) || 
-           lowerMessage.includes('?')) &&
-          dateKeywords.some(k => lowerMessage.includes(k))) {
-        this.log('info', 'Web search triggered by request for recent information', {
-          dateKeywords: dateKeywords.filter(k => lowerMessage.includes(k))
-        });
-        return true;
-      }
-
-      return false;
-    } catch (error) {
-      this.log('error', 'Error in shouldTrigger', { error: error.message });
-      return false;
-    }
+  // SEMANTIC TRIGGER (CRITICAL - See CLAUDE.md)
+  // DO NOT use keyword matching - let Gemini's function calling handle triggering
+  async shouldTrigger() {
+    // ❌ REMOVED 60+ lines of keyword lists and context checking
+    // ✅ Gemini's function calling uses the semantic description field for intent detection
+    // The description clearly states this is for finding current/factual information online
+    return false; // Let Gemini handle all triggering via description
   }
 
   async execute(params, toolContext = {}) {

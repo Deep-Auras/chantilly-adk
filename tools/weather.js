@@ -5,7 +5,7 @@ class WeatherTool extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'weather';
-    this.description = 'Get current weather information for a specified city';
+    this.description = 'Get current weather information and forecasts when user EXPLICITLY requests weather, temperature, forecast, or climate data for a specific location. Use ONLY when user asks about weather conditions, temperature, or forecasts. DO NOT use for general location questions or casual conversation.';
     this.category = 'information';
     this.version = '1.0.0';
     this.author = 'Chantilly Agent';
@@ -33,10 +33,10 @@ class WeatherTool extends BaseTool {
     };
   }
 
-  async shouldTrigger(message) {
-    const weatherKeywords = ['weather', 'temperature', 'forecast', 'climate'];
-    const lowerMessage = message.toLowerCase();
-    return weatherKeywords.some(keyword => lowerMessage.includes(keyword));
+  // SEMANTIC TRIGGER (CRITICAL - See CLAUDE.md)
+  // DO NOT use keyword matching - let Gemini's function calling handle triggering
+  async shouldTrigger() {
+    return false; // Let Gemini handle all triggering via description
   }
 
   async execute(params, toolContext = {}) {

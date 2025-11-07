@@ -247,109 +247,18 @@ class TaskTemplateManagerTool extends BaseTool {
   }
 
   /**
-   * Determine if this tool should trigger for the given message
-   * Uses intelligent detection: checks for template-related keywords + any action words,
-   * OR checks if message mentions any actual template names from database,
-   * OR detects template modification intent from context
+   * SEMANTIC TRIGGER (CRITICAL - See CLAUDE.md)
+   * DO NOT use keyword/regex matching or database lookups for triggering
+   * The description field clearly articulates when to use this tool conceptually
+   *
+   * This is an ADMIN tool for managing template DEFINITIONS (view/modify/delete).
+   * NOT for creating or executing tasks (ComplexTaskManager handles that).
    */
-  async shouldTrigger(message, toolContext) {
-    if (!message || typeof message !== 'string') {return false;}
-
-    const messageLower = message.toLowerCase();
-
-    // Check for template-related keywords (expanded to include implicit references)
-    const hasTemplateKeyword = /\b(?:template|complex\s+task|task\s+template|the\s+task|this\s+task|the\s+report|this\s+report|the\s+script|the\s+code)\b/i.test(message);
-
-    // Check for modification-specific action words (higher priority)
-    const hasModificationAction = /\b(?:modify|update|change|edit|fix|revise|correct|improve|adjust)\b/i.test(message);
-
-    // Check for any action-related words (broader)
-    const hasActionWord = /\b(?:modify|update|change|edit|fix|revise|correct|improve|adjust|review|inspect|check|examine|analyze|show|view|display|list|browse|enable|disable|delete|remove|toggle|add|include|keep|move|put|proceed|create|set|make)\b/i.test(message);
-
-    // CRITICAL: If message is about modifying code/script/execution, ALWAYS trigger
-    const isCodeModification = /\b(?:modify|update|change|edit|fix)\b.*\b(?:code|script|execution|html|output|logic|function|method)\b/i.test(message) ||
-                               /\b(?:code|script|execution|html|output|logic|function|method)\b.*\b(?:modify|update|change|edit|fix)\b/i.test(message);
-
-    if (isCodeModification) {
-      this.log('info', 'TaskTemplateManager trigger: code modification detected', {
-        message: message.substring(0, 100),
-        reason: 'Detected request to modify code/script/execution'
-      });
-      return true;
-    }
-
-    // If has template keyword AND modification action, trigger
-    if (hasTemplateKeyword && hasModificationAction) {
-      this.log('info', 'TaskTemplateManager trigger: template modification intent', {
-        message: message.substring(0, 100),
-        hasTemplateKeyword,
-        hasModificationAction
-      });
-      return true;
-    }
-
-    // If has both template keyword and action word, trigger
-    if (hasTemplateKeyword && hasActionWord) {
-      this.log('info', 'TaskTemplateManager trigger: keyword + action match', {
-        message: message.substring(0, 100),
-        hasTemplateKeyword,
-        hasActionWord
-      });
-      return true;
-    }
-
-    // Check if message mentions any actual template name from database
-    try {
-      await this.initialize();
-      const allTemplates = await this.templatesModel.getAllTemplates();
-
-      // Extract template name keywords
-      for (const template of allTemplates) {
-        const nameLower = template.name.toLowerCase();
-        const nameWords = nameLower.match(/\b\w{4,}\b/g) || []; // Significant words (4+ chars)
-
-        // If message contains 2+ significant words from template name, likely referring to it
-        const matchCount = nameWords.filter(word => messageLower.includes(word)).length;
-
-        // Lowered threshold: 1+ words if modification action, 2+ for other actions
-        const requiredMatches = hasModificationAction ? 1 : 2;
-
-        if (matchCount >= requiredMatches && hasActionWord) {
-          this.log('info', 'TaskTemplateManager trigger: template name detected', {
-            message: message.substring(0, 100),
-            templateName: template.name,
-            matchedWords: nameWords.filter(word => messageLower.includes(word)),
-            matchCount,
-            requiredMatches
-          });
-          return true;
-        }
-      }
-    } catch (error) {
-      this.log('warn', 'Failed to check template names for trigger', { error: error.message });
-      // Fall through to pattern matching if DB check fails
-    }
-
-    // Fallback: original strict pattern matching
-    const strictPatterns = [
-      /(?:show|list|view|display|browse)\s+(?:all\s+)?templates?/i,
-      /(?:delete|remove)\s+template/i,
-      /(?:toggle|switch)\s+testing\s+mode/i
-    ];
-
-    const strictMatched = strictPatterns.some(pattern => pattern.test(message));
-
-    this.log('info', 'TaskTemplateManager trigger evaluation', {
-      message: message.substring(0, 100),
-      hasTemplateKeyword,
-      hasModificationAction,
-      hasActionWord,
-      isCodeModification,
-      strictPatternMatched: strictMatched,
-      shouldTrigger: strictMatched
-    });
-
-    return strictMatched;
+  async shouldTrigger() {
+    // ❌ REMOVED 100+ lines of regex patterns, keyword matching, and DB lookups
+    // ✅ Gemini's function calling uses the semantic description field for intent detection
+    // The description clearly states this is for MANAGING template definitions, not creating tasks
+    return false; // Let Gemini handle all triggering via description
   }
 
   /**
