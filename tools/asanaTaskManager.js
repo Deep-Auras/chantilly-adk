@@ -5,8 +5,8 @@ class AsanaTaskManager extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'AsanaTaskManager';
-    this.description = 'Create, update, search, and complete tasks in Asana when user EXPLICITLY requests task management operations. Supports project names (e.g., "Liberteks") and section names (e.g., "General To Do"). Use ONLY when user asks to: create/add task, update task, find/search tasks, mark complete, or add comments. DO NOT use for conversational questions about identity, organization info, or general chat. This is strictly for task management operations in the EXTERNAL Asana platform.';
-    this.priority = 85;
+    this.description = 'Direct task management in Asana project management platform. Use this tool when user EXPLICITLY says "create an Asana task" or "add Asana task" or "create task in Asana" - meaning they want to directly interact with the Asana platform. Supports project names (e.g., "Liberteks") and section names (e.g., "General To Do"). Actions: CREATE new task (action="create"), UPDATE existing task (action="update"), SEARCH/FIND tasks (action="search"), VIEW task details (action="get"), MARK complete (action="complete"), ADD comment (action="add_comment"). DO NOT use for: (1) Conversational questions, (2) Internal data analysis, (3) Report generation, (4) Bulk processing. This is ONLY for direct, explicit Asana task operations where the user specifically mentions Asana.';
+    this.priority = 40; // Lower than ComplexTaskManager but semantically distinct use case
 
     this.parameters = {
       type: 'object',
@@ -14,15 +14,15 @@ class AsanaTaskManager extends BaseTool {
         action: {
           type: 'string',
           enum: ['create', 'update', 'search', 'get', 'complete', 'add_comment'],
-          description: 'Action to perform'
+          description: 'Action to perform. Use "create" when user wants to CREATE/ADD a new task. Use "update" to modify existing task. Use "search" to FIND existing tasks. Use "get" to view task details. Use "complete" to mark task done. Use "add_comment" to add comment to existing task.'
         },
         projectGid: {
           type: 'string',
-          description: 'Project GID (alternative to projectName)'
+          description: 'Project GID (alternative to projectName). REQUIRED for action="create" if projectName not provided.'
         },
         projectName: {
           type: 'string',
-          description: 'Project name (alternative to projectGid, e.g., "Liberteks")'
+          description: 'Project name (alternative to projectGid, e.g., "Liberteks"). REQUIRED for action="create" if projectGid not provided.'
         },
         sectionName: {
           type: 'string',
@@ -30,11 +30,11 @@ class AsanaTaskManager extends BaseTool {
         },
         taskGid: {
           type: 'string',
-          description: 'Task GID (required for update, get, complete, add_comment)'
+          description: 'Task GID (REQUIRED for actions: update, get, complete, add_comment)'
         },
         name: {
           type: 'string',
-          description: 'Task name (for create)'
+          description: 'Task name/title (REQUIRED for action="create")'
         },
         notes: {
           type: 'string',
