@@ -5,8 +5,8 @@ class AsanaTaskManager extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'AsanaTaskManager';
-    this.description = 'Create, update, search, and complete tasks in Asana when user EXPLICITLY requests task management operations. Supports project names (e.g., "Liberteks") and section names (e.g., "General To Do"). Use ONLY when user asks to: create/add task, update task, find/search tasks, mark complete, or add comments. DO NOT use for conversational questions about identity, organization info, or general chat. This is strictly for task management operations.';
-    this.priority = 80;
+    this.description = 'Create, update, search, and complete tasks in Asana when user EXPLICITLY requests task management operations. Supports project names (e.g., "Liberteks") and section names (e.g., "General To Do"). Use ONLY when user asks to: create/add task, update task, find/search tasks, mark complete, or add comments. DO NOT use for conversational questions about identity, organization info, or general chat. This is strictly for task management operations in the EXTERNAL Asana platform.';
+    this.priority = 85;
 
     this.parameters = {
       type: 'object',

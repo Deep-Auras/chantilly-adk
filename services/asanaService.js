@@ -404,10 +404,17 @@ class AsanaService {
         }
       };
 
-      await this.sectionsApi.addTaskForSection(body, sectionGid);
+      // Asana SDK v3.x signature: addTaskForSection(body, section_gid, opts)
+      const result = await this.sectionsApi.addTaskForSection(body, sectionGid, {});
       logger.info('Moved task to section', { taskGid, sectionGid });
+      return result;
     } catch (error) {
-      logger.error('Failed to move task to section', { error: error.message });
+      logger.error('Failed to move task to section', {
+        error: error.message,
+        stack: error.stack,
+        taskGid,
+        sectionGid
+      });
       throw error;
     }
   }
