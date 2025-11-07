@@ -274,8 +274,18 @@ class WebBrowserTool extends BaseTool {
           'Sec-Fetch-User': '?1',
           'Upgrade-Insecure-Requests': '1'
         },
-        validateStatus: (status) => status >= 200 && status < 300
+        validateStatus: (status) => status >= 200 && status < 400 // Accept success and redirect codes
       });
+
+      // SECURITY: After following redirects, validate final URL
+      const finalUrl = response.request?.res?.responseUrl || url;
+      if (!this.isUrlSafe(finalUrl)) {
+        this.log('warn', 'Final URL after redirects is unsafe', {
+          originalUrl: url,
+          finalUrl: finalUrl
+        });
+        throw new Error('Final URL after redirects failed security validation');
+      }
 
       const html = response.data;
 

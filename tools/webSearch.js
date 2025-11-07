@@ -7,7 +7,7 @@ class WebSearchTool extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'WebSearch';
-    this.description = 'Search the web using DuckDuckGo when information is not available in knowledge base or when current information is needed. Fetches and analyzes content from top search results.';
+    this.description = 'Search the web using DuckDuckGo to find factual information, current events, latest news, prices, statistics, or technical documentation ONLY when user explicitly requests information lookup. DO NOT use for greetings, casual conversation, opinions, or questions that can be answered from personality/identity. Use when user asks: "what is", "current price", "latest news about", "how to", "search for", or explicitly mentions needing current/recent information.';
     this.category = 'information';
     this.version = '1.0.0';
     this.author = 'Chantilly Agent';
@@ -329,12 +329,22 @@ class WebSearchTool extends BaseTool {
           'Upgrade-Insecure-Requests': '1'
         },
         timeout: this.requestTimeout,
-        maxRedirects: 0, // SECURITY FIX: Disable redirects to prevent bypass
-        maxContentLength: this.maxDownloadSize, // Use larger download limit
+        maxRedirects: 3, // SECURITY: Allow up to 3 redirects (most sites need this)
+        maxContentLength: this.maxDownloadSize,
         validateStatus: function (status) {
-          return status >= 200 && status < 300; // Only accept success codes, not redirects
+          return status >= 200 && status < 400; // Accept success and redirect codes
         }
       });
+
+      // SECURITY: After following redirects, validate final URL
+      const finalUrl = response.request?.res?.responseUrl || searchResult.url;
+      if (!this.isUrlSafe(finalUrl)) {
+        this.log('warn', 'Final URL after redirects is unsafe', {
+          originalUrl: searchResult.url,
+          finalUrl: finalUrl
+        });
+        return null;
+      }
 
       const $ = cheerio.load(response.data);
 
