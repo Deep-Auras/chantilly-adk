@@ -11,13 +11,36 @@ router.post('/webhook/google-chat', async (req, res) => {
     const event = req.body;
     const chatService = getGoogleChatService();
 
-    logger.info('Google Chat event received', {
-      type: event.type,
+    // Log the complete event structure for debugging
+    logger.info('Google Chat event received - FULL PAYLOAD', {
+      hasType: 'type' in event,
+      typeValue: event.type,
+      hasMessage: !!event.message,
+      hasSpace: !!event.space,
+      hasAction: !!event.action,
+      hasCommonEventObject: !!event.commonEventObject,
+      eventKeys: Object.keys(event),
       spaceName: event.space?.name,
       userName: event.user?.displayName
     });
 
-    switch (event.type) {
+    // Use event.type if it exists (per Google documentation), otherwise infer from fields
+    let eventType = event.type || 'UNKNOWN';
+
+    // If no type field, infer from payload structure
+    if (eventType === 'UNKNOWN') {
+      if (event.message) {
+        eventType = 'MESSAGE';
+      } else if (event.space && event.space.singleUserBotDm === true && !event.message) {
+        eventType = 'ADDED_TO_SPACE';
+      } else if (event.action) {
+        eventType = 'CARD_CLICKED';
+      }
+    }
+
+    logger.info('Determined event type', { eventType });
+
+    switch (eventType) {
       case 'MESSAGE':
         if (event.message.slashCommand) {
           const response = await chatService.handleSlashCommand(event);
@@ -42,7 +65,7 @@ router.post('/webhook/google-chat', async (req, res) => {
         return res.json(response);
 
       default:
-        logger.info('Unhandled Google Chat event type', { type: event.type });
+        logger.info('Unhandled Google Chat event type', { eventType, eventKeys: Object.keys(event) });
         return res.json({});
     }
   } catch (error) {
