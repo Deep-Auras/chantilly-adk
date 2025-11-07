@@ -32,6 +32,7 @@ class AsanaService {
       this.webhooksApi = new asana.WebhooksApi();
       this.storiesApi = new asana.StoriesApi();
       this.sectionsApi = new asana.SectionsApi();
+      this.projectsApi = new asana.ProjectsApi();
 
       this.initialized = true;
       logger.info('Asana service initialized');
@@ -350,6 +351,27 @@ class AsanaService {
   async handleProjectEvent(action, resource) {
     logger.info('Project event', { action, gid: resource.gid });
     // Handle project-level events if needed
+  }
+
+  /**
+   * Get project by name in workspace
+   */
+  async getProjectByName(projectName) {
+    await this.initialize();
+
+    try {
+      const opts = {
+        workspace: this.workspaceGid,
+        opt_fields: 'name,gid'
+      };
+      const result = await this.projectsApi.getProjects(opts);
+      const projects = result.data;
+      const project = projects.find(p => p.name.toLowerCase() === projectName.toLowerCase());
+      return project || null;
+    } catch (error) {
+      logger.error('Failed to get project by name', { error: error.message, projectName });
+      throw error;
+    }
   }
 
   /**

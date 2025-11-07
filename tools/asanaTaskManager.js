@@ -5,7 +5,7 @@ class AsanaTaskManager extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'AsanaTaskManager';
-    this.description = 'Create, update, search, and complete tasks in Asana when user EXPLICITLY requests task management operations. Use ONLY when user asks to: create/add task, update task, find/search tasks, mark complete, or add comments. DO NOT use for conversational questions about identity, organization info, or general chat. This is strictly for task management operations.';
+    this.description = 'Create, update, search, and complete tasks in Asana when user EXPLICITLY requests task management operations. Supports project names (e.g., "Liberteks") and section names (e.g., "General To Do"). Use ONLY when user asks to: create/add task, update task, find/search tasks, mark complete, or add comments. DO NOT use for conversational questions about identity, organization info, or general chat. This is strictly for task management operations.';
     this.priority = 80;
 
     this.parameters = {
@@ -18,7 +18,15 @@ class AsanaTaskManager extends BaseTool {
         },
         projectGid: {
           type: 'string',
-          description: 'Project GID (required for create)'
+          description: 'Project GID (alternative to projectName)'
+        },
+        projectName: {
+          type: 'string',
+          description: 'Project name (alternative to projectGid, e.g., "Liberteks")'
+        },
+        sectionName: {
+          type: 'string',
+          description: 'Section name within the project (optional, e.g., "General To Do")'
         },
         taskGid: {
           type: 'string',
@@ -69,12 +77,47 @@ class AsanaTaskManager extends BaseTool {
     try {
       switch (args.action) {
         case 'create':
-          const task = await asana.createTask(args.projectGid, {
+          // Resolve project GID from name if needed
+          let projectGid = args.projectGid;
+          if (!projectGid && args.projectName) {
+            const project = await asana.getProjectByName(args.projectName);
+            if (!project) {
+              return `❌ Project "${args.projectName}" not found`;
+            }
+            projectGid = project.gid;
+            this.log('info', 'Resolved project by name', {
+              projectName: args.projectName,
+              projectGid
+            });
+          }
+
+          if (!projectGid) {
+            return `❌ Either projectGid or projectName must be provided`;
+          }
+
+          // Create the task
+          const task = await asana.createTask(projectGid, {
             name: args.name,
             notes: args.notes,
             assignee: args.assignee,
             dueDate: args.dueDate
           });
+
+          // Move to section if specified
+          if (args.sectionName) {
+            const section = await asana.getSectionByName(projectGid, args.sectionName);
+            if (section) {
+              await asana.moveTaskToSection(task.gid, section.gid);
+              this.log('info', 'Moved task to section', {
+                taskGid: task.gid,
+                sectionName: args.sectionName,
+                sectionGid: section.gid
+              });
+              return `✅ Created task: ${task.name}\nSection: ${args.sectionName}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}`;
+            } else {
+              return `✅ Created task: ${task.name}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}\n⚠️ Warning: Section "${args.sectionName}" not found, task created in default section`;
+            }
+          }
 
           return `✅ Created task: ${task.name}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}`;
 
