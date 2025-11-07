@@ -4,6 +4,7 @@ const { getTaskQueueModel } = require('../models/taskQueue');
 const { getWorkerProcessesModel } = require('../models/workerProcesses');
 const { getTaskTemplateLoader } = require('../services/taskTemplateLoader');
 const { IsolatedTaskWorker } = require('./isolatedTaskWorker');
+const { getMemoryTestTimeScaling } = require('../services/memoryTestTimeScaling');
 const config = require('../config/env');
 
 /**
@@ -38,6 +39,7 @@ class BasicTaskWorker {
     this.taskQueueModel = null;
     this.workerProcessesModel = null;
     this.templateLoader = null;
+    this.mattsService = null; // MaTTS test-time scaling service
 
     // Isolated task execution
     this.isolatedWorker = new IsolatedTaskWorker({
@@ -73,6 +75,7 @@ class BasicTaskWorker {
       this.taskQueueModel = getTaskQueueModel();
       this.workerProcessesModel = getWorkerProcessesModel();
       this.templateLoader = getTaskTemplateLoader();
+      this.mattsService = getMemoryTestTimeScaling(); // Initialize MaTTS service
 
       await this.taskQueueModel.initialize();
       await this.workerProcessesModel.initialize();
@@ -194,9 +197,68 @@ class BasicTaskWorker {
       this.status = 'running';
       await this.updateWorkerStatus('running');
 
-      // Execute the task in isolated worker thread (with 512MB limit, 5min timeout)
-      // The isolated worker handles executor creation, memory limits, and timeouts
-      const executionResult = await this.isolatedWorker.executeTaskIsolated(taskId, taskData);
+      // ===== MaTTS Integration: Memory-aware Test-Time Scaling =====
+      // Check if MaTTS is enabled (parallel or sequential scaling)
+      const mattsEnabled = config.MATTS_PARALLEL_ENABLED || config.MATTS_SEQUENTIAL_ENABLED;
+      let executionResult;
+
+      if (mattsEnabled && config.REASONING_MEMORY_ENABLED) {
+        logger.info('MaTTS enabled, using memory-aware test-time scaling', {
+          taskId,
+          parallelEnabled: config.MATTS_PARALLEL_ENABLED,
+          sequentialEnabled: config.MATTS_SEQUENTIAL_ENABLED,
+          workerId: this.workerId
+        });
+
+        // Define executeFunction for MaTTS - this will be called for each trajectory
+        const executeFunction = async (task, memories) => {
+          // Create modified taskData with provided memories
+          const modifiedTaskData = {
+            ...taskData,
+            providedMemories: memories // Pass memories from MaTTS to executor
+          };
+
+          logger.debug('MaTTS executeFunction called', {
+            taskId: task.taskId,
+            memoriesProvided: memories.length,
+            workerId: this.workerId
+          });
+
+          // Execute with provided memories
+          return await this.isolatedWorker.executeTaskIsolated(taskId, modifiedTaskData);
+        };
+
+        // Decide between parallel or sequential scaling (parallel takes precedence)
+        if (config.MATTS_PARALLEL_ENABLED) {
+          // Parallel scaling: Generate N trajectories, select best
+          const numVariants = config.MATTS_PARALLEL_VARIANTS || 3;
+          executionResult = await this.mattsService.parallelScaling(
+            taskData,
+            executeFunction,
+            numVariants
+          );
+        } else {
+          // Sequential scaling: Iteratively refine trajectory
+          const maxIterations = config.MATTS_SEQUENTIAL_ITERATIONS || 3;
+          executionResult = await this.mattsService.sequentialScaling(
+            taskData,
+            executeFunction,
+            null, // No reflection function yet (can be added later)
+            maxIterations
+          );
+        }
+      } else {
+        // Traditional execution without MaTTS
+        logger.debug('MaTTS disabled, using traditional execution', {
+          taskId,
+          mattsEnabled,
+          reasoningMemoryEnabled: config.REASONING_MEMORY_ENABLED,
+          workerId: this.workerId
+        });
+
+        executionResult = await this.isolatedWorker.executeTaskIsolated(taskId, taskData);
+      }
+      // ===== End MaTTS Integration =====
 
       // Store executor metadata for memory extraction
       if (executionResult.executorMetadata) {

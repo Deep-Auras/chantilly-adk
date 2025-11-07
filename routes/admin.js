@@ -6,6 +6,19 @@ const { getUserRoleService } = require('../services/userRoleService');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
 
+// Helper to sanitize error messages (remove sensitive data)
+function sanitizeErrorMessage(message) {
+  if (!message) return 'An error occurred';
+
+  // Remove common sensitive patterns
+  return message
+    .replace(/password[=:][^\s]*/gi, 'password=***')
+    .replace(/token[=:][^\s]*/gi, 'token=***')
+    .replace(/key[=:][^\s]*/gi, 'key=***')
+    .replace(/secret[=:][^\s]*/gi, 'secret=***')
+    .replace(/\b\d{13,19}\b/g, '***'); // Credit card numbers
+}
+
 // Validation schemas
 const createMappingSchema = joi.object({
   bitrixUserId: joi.string().alphanum().min(1).max(100).required(),
@@ -424,6 +437,122 @@ router.post('/bitrix-users-cache/clear', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to clear cache'
+    });
+  }
+});
+
+/**
+ * POST /admin/memory-consolidation
+ * Run memory consolidation process (prune, merge, archive)
+ * Should be called periodically via Cloud Scheduler
+ */
+router.post('/memory-consolidation', async (req, res) => {
+  try {
+    const { getMemoryConsolidation } = require('../services/memoryConsolidation');
+    const consolidation = getMemoryConsolidation();
+
+    logger.info('Memory consolidation started', {
+      triggeredBy: req.user?.username || 'Cloud Scheduler'
+    });
+
+    const stats = await consolidation.consolidate();
+
+    logger.info('Memory consolidation completed', {
+      triggeredBy: req.user?.username || 'Cloud Scheduler',
+      stats
+    });
+
+    res.json({
+      success: true,
+      message: 'Memory consolidation completed successfully',
+      stats
+    });
+  } catch (error) {
+    logger.error('Memory consolidation endpoint failed', {
+      error: error.message,
+      stack: error.stack,
+      triggeredBy: req.user?.username || 'Cloud Scheduler'
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to run memory consolidation',
+      details: sanitizeErrorMessage(error.message)
+    });
+  }
+});
+
+/**
+ * GET /admin/memory-stats
+ * Get memory system statistics
+ */
+router.get('/memory-stats', async (req, res) => {
+  try {
+    const { getReasoningMemoryModel } = require('../models/reasoningMemory');
+    const memoryModel = getReasoningMemoryModel();
+
+    const memories = await memoryModel.getAllMemories(10000);
+
+    // Calculate statistics
+    const stats = {
+      totalMemories: memories.length,
+      byCategory: {},
+      bySource: {},
+      avgSuccessRate: 0,
+      highPerformers: 0, // Success rate >= 70%
+      lowPerformers: 0,  // Success rate < 30%
+      totalRetrievals: 0,
+      memoriesWithStats: 0
+    };
+
+    let successRateSum = 0;
+    let memoriesWithSuccessRate = 0;
+
+    memories.forEach(m => {
+      // Category counts
+      stats.byCategory[m.category] = (stats.byCategory[m.category] || 0) + 1;
+
+      // Source counts
+      stats.bySource[m.source] = (stats.bySource[m.source] || 0) + 1;
+
+      // Success rate analysis
+      if (m.successRate !== null && m.successRate !== undefined) {
+        successRateSum += m.successRate;
+        memoriesWithSuccessRate++;
+
+        if (m.successRate >= 0.7) {
+          stats.highPerformers++;
+        } else if (m.successRate < 0.3) {
+          stats.lowPerformers++;
+        }
+      }
+
+      // Retrieval stats
+      if (m.timesRetrieved > 0) {
+        stats.totalRetrievals += m.timesRetrieved;
+        stats.memoriesWithStats++;
+      }
+    });
+
+    stats.avgSuccessRate = memoriesWithSuccessRate > 0
+      ? (successRateSum / memoriesWithSuccessRate).toFixed(2)
+      : 0;
+
+    logger.info('Memory stats retrieved', {
+      requestedBy: req.user.username
+    });
+
+    res.json({
+      success: true,
+      stats
+    });
+  } catch (error) {
+    logger.error('Failed to get memory stats', {
+      error: error.message,
+      requestedBy: req.user.username
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve memory statistics'
     });
   }
 });

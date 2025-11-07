@@ -189,6 +189,87 @@ class ReasoningMemoryModel {
 
     return memories;
   }
+
+  /**
+   * Update specific fields of a memory
+   * @param {string} memoryId - Memory document ID
+   * @param {Object} updates - Fields to update
+   */
+  async updateMemory(memoryId, updates) {
+    await this.initialize();
+
+    await this.db.collection(this.collectionName).doc(memoryId).update({
+      ...updates,
+      updatedAt: getFieldValue().serverTimestamp()
+    });
+
+    logger.debug('Memory updated', {
+      memoryId,
+      updatedFields: Object.keys(updates)
+    });
+
+    this.cache.clear();
+  }
+
+  /**
+   * Delete a memory permanently
+   * @param {string} memoryId - Memory document ID
+   */
+  async deleteMemory(memoryId) {
+    await this.initialize();
+
+    await this.db.collection(this.collectionName).doc(memoryId).delete();
+
+    logger.info('Memory deleted', { memoryId });
+
+    this.cache.clear();
+  }
+
+  /**
+   * Archive a memory (move to archive collection for historical reference)
+   * @param {string} memoryId - Memory document ID
+   */
+  async archiveMemory(memoryId) {
+    await this.initialize();
+
+    // Get the memory document
+    const doc = await this.db.collection(this.collectionName).doc(memoryId).get();
+    if (!doc.exists) {
+      logger.warn('Memory not found for archiving', { memoryId });
+      return;
+    }
+
+    const memoryData = doc.data();
+
+    // Copy to archive collection
+    await this.db.collection('reasoning-memory-archive').doc(memoryId).set({
+      ...memoryData,
+      archivedAt: getFieldValue().serverTimestamp(),
+      archivedReason: 'Stale memory (not retrieved in 90+ days)'
+    });
+
+    // Delete from active collection
+    await this.db.collection(this.collectionName).doc(memoryId).delete();
+
+    logger.info('Memory archived', { memoryId });
+
+    this.cache.clear();
+  }
+
+  /**
+   * Get memory by ID
+   * @param {string} memoryId - Memory document ID
+   */
+  async getMemoryById(memoryId) {
+    await this.initialize();
+
+    const doc = await this.db.collection(this.collectionName).doc(memoryId).get();
+    if (!doc.exists) {
+      return null;
+    }
+
+    return { id: doc.id, ...doc.data() };
+  }
 }
 
 // Singleton
