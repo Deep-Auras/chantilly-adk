@@ -18,9 +18,12 @@
  *   node scripts/setupBskyFirestore.js
  */
 
-const { getFirestore, getFieldValue } = require('../config/firestore');
+const { initializeFirestore, getFirestore, getFieldValue } = require('../config/firestore');
 
 async function setupBlueskyFirestore() {
+  // Initialize Firestore first
+  await initializeFirestore();
+
   const db = getFirestore();
   const FieldValue = getFieldValue();
 
