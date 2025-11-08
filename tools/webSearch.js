@@ -11,7 +11,7 @@ class WebSearchTool extends BaseTool {
     this.category = 'information';
     this.version = '1.0.0';
     this.author = 'Chantilly Agent';
-    this.priority = 50; // Medium priority - runs after specialized tools
+    this.priority = 40; // Lower priority - let specialized tools win
 
     this.parameters = {
       type: 'object',
