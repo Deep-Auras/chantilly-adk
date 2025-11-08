@@ -477,15 +477,15 @@ class GeminiService {
       const hasBskyYouTubeTool = toolDeclarations.some(t => t.name === 'BskyYouTubePost');
 
       let toolCallingConfig = {
-        mode: 'ANY',
-        allowedFunctionNames: toolDeclarations.map(tool => tool.name)
+        mode: 'ANY'
+        // Do NOT set allowedFunctionNames in default case - let Gemini choose any tool
       };
 
       if (hasYouTubeUrl && hasBskyYouTubeTool) {
         // Restrict to ONLY BskyYouTubePost when YouTube URL detected
         toolCallingConfig = {
-          mode: 'ANY', // Keep ANY mode
-          allowedFunctionNames: ['BskyYouTubePost'] // But ONLY allow this one tool
+          mode: 'ANY',
+          allowedFunctionNames: ['BskyYouTubePost'] // ONLY allow this one tool
         };
         logger.info('YouTube URL detected - restricting to BskyYouTubePost tool only', {
           promptPreview: prompt.substring(0, 100),
