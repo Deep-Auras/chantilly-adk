@@ -40,7 +40,7 @@ class BskyPersonaFollow extends BaseTool {
         },
         matchThreshold: {
           type: 'number',
-          description: 'Minimum match score (0-100) to consider profile a good match (default: 50)'
+          description: 'Minimum match score (0-100) to consider profile a good match. Use 50 (balanced - recommended), 40 (more inclusive), or 60 (more selective). DO NOT use values above 60 unless explicitly requested by user.'
         },
         maxFollows: {
           type: 'number',
@@ -152,8 +152,9 @@ class BskyPersonaFollow extends BaseTool {
         for (const profile of profiles) {
           profilesScanned++;
 
-          // Skip profiles with low follower count (likely bots)
-          if (profile.followersCount < 10) {
+          // Skip profiles with very low follower count (likely spam/bots)
+          // Bluesky is still growing - many real users have < 10 followers
+          if (profile.followersCount < 3) {
             profilesSkippedLowFollowers++;
             continue;
           }
