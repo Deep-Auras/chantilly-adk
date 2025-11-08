@@ -335,6 +335,11 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
         maxTokens: 300
       });
 
+      if (!response) {
+        this.log('error', 'Empty response from Gemini post generation');
+        return null;
+      }
+
       // Clean up response
       let postText = response.trim();
 
@@ -348,9 +353,14 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
         postText = this.truncateAtSentence(postText, maxLength - urlSpace);
       }
 
+      this.log('info', 'Post text generated successfully', { length: postText.length });
       return postText;
     } catch (error) {
-      this.log('error', 'Post generation failed', { error: error.message });
+      this.log('error', 'Post generation failed', {
+        error: error.message,
+        stack: error.stack,
+        prompt: postPrompt.substring(0, 200) + '...'
+      });
       return null;
     }
   }
