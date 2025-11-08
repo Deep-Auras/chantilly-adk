@@ -25,7 +25,7 @@ class BskyYouTubePost extends BaseTool {
     this.name = 'BskyYouTubePost';
     this.description = 'POST to Bluesky from YouTube videos when user EXPLICITLY requests creating/posting Bluesky content from a YouTube URL. Recognizes requests like: "create a Bluesky post from this YouTube video", "post this YouTube video to Bluesky", "watch this YouTube video and create a Bluesky post", "share YouTube video on Bluesky". Supports persona-based targeting (e.g., "create post for Retail Rita persona"). This tool IMMEDIATELY POSTS to Bluesky (does NOT generate drafts). Analyzes video with Gemini 2.5 Pro (visual + audio), loads persona information from knowledge base if requested, extracts key insights, and publishes engaging posts. Supports youtube.com and youtu.be URLs. Use ONLY when user provides YouTube URL AND wants to PUBLISH to Bluesky. DO NOT use for: general video summaries, web searches about personas, or conversational questions.';
     this.priority = 60; // Higher than WebSearch (50) to win on YouTube+Bluesky requests
-    this.timeout = 12 * 60 * 1000; // 12 minutes (video analysis can be slow)
+    this.timeout = 15 * 60 * 1000; // 15 minutes (video analysis can be slow)
 
     this.parameters = {
       type: 'object',

@@ -24,7 +24,7 @@ class BskyPersonaFollow extends BaseTool {
     this.name = 'BskyPersonaFollow';
     this.description = 'Discover and follow Bluesky profiles matching marketing personas when user EXPLICITLY requests "find Bluesky profiles matching our personas" or "follow people on Bluesky who match our target audience" or "search for bsky profiles matching personas". This tool searches for profiles based on persona characteristics (industry, interests, job titles) defined in knowledge base documents, evaluates match quality using AI, and automatically follows high-match profiles. Use ONLY when user wants to grow Bluesky following based on persona targeting. DO NOT use for general profile searches, manual follows, or conversational questions about personas.';
     this.priority = 60;
-    this.timeout = 5 * 60 * 1000; // 5 minutes (AI scoring can take time)
+    this.timeout = 15 * 60 * 1000; // 15 minutes (AI scoring can take time)
 
     this.parameters = {
       type: 'object',

@@ -25,7 +25,7 @@ class BskyFeedAnalyzer extends BaseTool {
     this.name = 'BskyFeedAnalyzer';
     this.description = 'Analyze Bluesky feed to identify potential marketing prospects when user EXPLICITLY requests "analyze my Bluesky feed for prospects" or "find potential customers on Bluesky" or "generate prospect report from Bluesky" or "identify sales leads from bsky". This tool monitors the timeline and feeds from followed users, uses AI to evaluate if profiles match marketing personas, analyzes recent posts for buying signals, and generates actionable prospect reports. Use ONLY when user wants to identify sales/marketing opportunities from Bluesky activity. DO NOT use for general feed reading, engagement tracking, or conversational questions about Bluesky content.';
     this.priority = 55;
-    this.timeout = 10 * 60 * 1000; // 10 minutes (extensive AI analysis)
+    this.timeout = 15 * 60 * 1000; // 15 minutes (extensive AI analysis)
 
     this.parameters = {
       type: 'object',

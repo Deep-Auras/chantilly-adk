@@ -202,16 +202,24 @@ class GoogleChatService {
         user: user
       };
 
-      // Check if this might trigger a long-running tool (>45s timeout)
-      // Pattern detection for YouTube URLs (BskyYouTubePost has 12min timeout)
+      // Check if this might trigger a long-running tool (>60s timeout)
       const hasYouTubeUrl = /(?:youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/i.test(message.text);
       const mentionsBluesky = /bluesky|bsky/i.test(message.text);
-      const isLongRunningRequest = hasYouTubeUrl && mentionsBluesky;
+      const isFeedAnalysis = /analyz|prospect|feed/i.test(message.text);
+      const isPersonaFollow = /follow|discover|find\s+(people|profiles|users)|persona.*match/i.test(message.text);
+
+      // Pattern detection for long-running Bluesky tools:
+      // 1. BskyYouTubePost: YouTube URL + Bluesky mention (15min timeout)
+      // 2. BskyFeedAnalyzer: Feed analysis + Bluesky mention (15min timeout)
+      // 3. BskyPersonaFollow: Persona following + Bluesky mention (15min timeout)
+      const isLongRunningRequest = mentionsBluesky && (hasYouTubeUrl || isFeedAnalysis || isPersonaFollow);
 
       if (isLongRunningRequest) {
         // ASYNC MODE: Return immediate acknowledgment, process in background
-        logger.info('Long-running tool detected, using async response', {
+        logger.info('Long-running Bluesky tool detected, using async response', {
           hasYouTubeUrl,
+          isFeedAnalysis,
+          isPersonaFollow,
           mentionsBluesky
         });
 
@@ -221,8 +229,17 @@ class GoogleChatService {
             logger.error('Async message processing failed', { error: error.message });
           });
 
-        // Return immediate acknowledgment
-        return this.createCardResponse('⏳ Processing your request... This may take up to 2 minutes for video analysis. I\'ll send the result shortly.');
+        // Return immediate acknowledgment with specific message
+        let acknowledgeMessage;
+        if (hasYouTubeUrl) {
+          acknowledgeMessage = '⏳ Processing your YouTube video for Bluesky... This may take up to 2 minutes. I\'ll send the result shortly.';
+        } else if (isPersonaFollow) {
+          acknowledgeMessage = '⏳ Finding and evaluating Bluesky profiles matching your personas... This may take 1-2 minutes. I\'ll send the result shortly.';
+        } else {
+          acknowledgeMessage = '⏳ Analyzing your Bluesky feed... This may take 1-2 minutes. I\'ll send the result shortly.';
+        }
+
+        return this.createCardResponse(acknowledgeMessage);
       }
 
       // SYNC MODE: Standard flow for quick operations (<45s)
