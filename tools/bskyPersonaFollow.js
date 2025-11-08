@@ -183,88 +183,77 @@ class BskyPersonaFollow extends BaseTool {
       fromSearch: profilesFromSearch
     });
 
-    // 3. Score all unique profiles against ALL personas
-    const allMatches = [];
-    const maxCandidates = 40; // Evaluate up to 40 total profiles (from both sources)
-    let profilesScanned = 0;
+    // 3. Filter already-followed profiles before AI scoring
+    const candidateProfiles = [];
     let profilesSkippedAlreadyFollowed = 0;
-    let profilesBelowThreshold = 0;
-    const allScores = []; // Track all scores for debugging
 
     for (const [did, profile] of allProfiles) {
-      // Skip if already followed (check before scoring to save AI calls)
       const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
       if (alreadyFollowed) {
         profilesSkippedAlreadyFollowed++;
         continue;
       }
+      candidateProfiles.push(profile);
+    }
 
-      // Stop if we've evaluated enough profiles
-      if (profilesScanned >= maxCandidates) {
-        this.log('info', 'Evaluated enough profiles, stopping', { profilesScanned });
-        break;
-      }
+    this.log('info', 'Candidate profiles ready for AI scoring', {
+      total: candidateProfiles.length,
+      skippedAlreadyFollowed: profilesSkippedAlreadyFollowed
+    });
 
-      profilesScanned++;
+    // 4. BATCH AI scoring - send ALL profiles to AI in ONE request
+    const maxCandidates = 40;
+    const profilesToScore = candidateProfiles.slice(0, maxCandidates);
 
-      // NOTE: followersCount not available from suggested follows/search APIs
-      // (only in getProfile). AI scoring will filter out spam/inactive accounts based on bio quality.
+    this.log('info', 'Starting batch AI scoring', {
+      profilesCount: profilesToScore.length,
+      personasCount: personas.length
+    });
 
-      // AI match scoring against ALL personas (find best match)
-      let bestMatch = null;
-      let bestScore = 0;
+    const scoringResults = await this.batchScoreProfiles({
+      profiles: profilesToScore,
+      personas,
+      gemini
+    });
 
-      for (const persona of personas) {
-        const matchScore = await this.scoreProfileMatch(profile, persona, gemini);
+    this.log('info', 'Batch AI scoring complete', {
+      resultsCount: scoringResults.length
+    });
 
-        // Log individual persona score
-        this.log('debug', 'Profile scored', {
-          handle: profile.handle,
-          persona: persona.name,
-          score: matchScore.score,
-          threshold: matchThreshold,
-          source: profile.source,
-          reason: matchScore.reason
-        });
+    // 5. Process scoring results
+    const allMatches = [];
+    let profilesBelowThreshold = 0;
+    const allScores = [];
 
-        if (matchScore.score > bestScore) {
-          bestScore = matchScore.score;
-          bestMatch = {
-            persona,
-            score: matchScore.score,
-            reason: matchScore.reason
-          };
-        }
-      }
-
-      // Track score for reporting
+    for (const result of scoringResults) {
       allScores.push({
-        handle: profile.handle,
-        score: bestScore,
-        source: profile.source,
-        reason: bestMatch?.reason || 'No match'
+        handle: result.profile.handle,
+        score: result.bestScore,
+        source: result.profile.source,
+        reason: result.reason
       });
 
-      // Add to matches if above threshold
-      if (bestScore >= matchThreshold) {
+      if (result.bestScore >= matchThreshold) {
         allMatches.push({
-          profile,
-          persona: bestMatch.persona,
-          matchScore: bestScore,
-          matchReason: bestMatch.reason,
-          source: profile.source
+          profile: result.profile,
+          persona: result.bestPersona,
+          matchScore: result.bestScore,
+          matchReason: result.reason,
+          source: result.profile.source
         });
 
         this.log('info', 'Profile matched', {
-          handle: profile.handle,
-          persona: bestMatch.persona.name,
-          score: bestScore,
-          source: profile.source
+          handle: result.profile.handle,
+          persona: result.bestPersona.name,
+          score: result.bestScore,
+          source: result.profile.source
         });
       } else {
         profilesBelowThreshold++;
       }
     }
+
+    const profilesScanned = scoringResults.length;
 
     // Log summary statistics
     this.log('info', 'Profile scanning complete', {
@@ -433,7 +422,133 @@ class BskyPersonaFollow extends BaseTool {
   }
 
   /**
-   * Score profile match against persona using AI
+   * Batch score all profiles against all personas in ONE AI call
+   */
+  async batchScoreProfiles({ profiles, personas, gemini }) {
+    // Build comprehensive prompt with ALL profiles and ALL personas
+    const profilesList = profiles.map((p, idx) => `
+**Profile ${idx + 1}:**
+- Handle: ${p.handle}
+- Display Name: ${p.displayName || 'Not set'}
+- Bio: ${p.description || 'No bio'}
+- Source: ${p.source}`).join('\n');
+
+    const personasList = personas.map((p, idx) => `
+**Persona ${idx + 1}: ${p.name}** (ID: ${p.personaId})
+- Industry: ${p.industry || 'Not specified'}
+- Job Titles: ${p.jobTitles ? p.jobTitles.join(', ') : 'Not specified'}
+- Interests: ${p.interests ? p.interests.join(', ') : 'Not specified'}
+- Pain Points: ${p.painPoints ? p.painPoints.join(', ') : 'Not specified'}`).join('\n');
+
+    const batchPrompt = `Evaluate ${profiles.length} Bluesky profiles against ${personas.length} marketing personas.
+
+**PERSONAS:**
+${personasList}
+
+**PROFILES TO EVALUATE:**
+${profilesList}
+
+**TASK:** For EACH profile, find the BEST matching persona and assign a score 0-100.
+
+**Scoring Guidelines:**
+1. Bio mentions persona industry, job titles, or interests (HIGH PRIORITY - must have substantive bio)
+2. Display name or handle suggests relevant professional identity
+3. Bio shows genuine professional persona (not spam/bot - look for complete sentences, specific expertise)
+4. **CRITICAL: If bio is empty, generic, or spam-like, score must be 0-20 maximum**
+
+**Examples of LOW scores:**
+- Empty bio or "No bio" → 0
+- Generic bios like "crypto enthusiast" → 10
+- Promotional/spam bios → 0
+- Single emoji or keyword → 5
+
+**Examples of HIGH scores:**
+- Detailed professional bio with job title + industry → 70-90
+- Bio mentions specific expertise and pain points → 80-100
+- Clear professional identity matching persona → 90-100
+
+**CRITICAL: Respond with ONLY a JSON array, one object per profile, in the SAME order as the profiles above:**
+
+[
+  {
+    "profileIndex": 1,
+    "bestPersonaId": "persona_id_here",
+    "score": 85,
+    "reason": "One sentence explanation"
+  },
+  {
+    "profileIndex": 2,
+    "bestPersonaId": "persona_id_here",
+    "score": 0,
+    "reason": "Empty bio"
+  }
+]
+
+IMPORTANT: Return exactly ${profiles.length} results in the same order as the input profiles.`;
+
+    try {
+      const response = await gemini.generateResponse(batchPrompt, {
+        temperature: 0.3,
+        maxTokens: 4000 // Larger limit for batch responses
+      });
+
+      // Parse JSON array response
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        this.log('error', 'AI batch response not in expected JSON array format', { response });
+        // Fallback: return 0 scores for all
+        return profiles.map(profile => ({
+          profile,
+          bestPersona: personas[0],
+          bestScore: 0,
+          reason: 'Invalid AI response format'
+        }));
+      }
+
+      const results = JSON.parse(jsonMatch[0]);
+
+      // Map results back to profiles with persona objects
+      return profiles.map((profile, idx) => {
+        const result = results.find(r => r.profileIndex === idx + 1) || results[idx];
+
+        if (!result) {
+          return {
+            profile,
+            bestPersona: personas[0],
+            bestScore: 0,
+            reason: 'No AI result for this profile'
+          };
+        }
+
+        const bestPersona = personas.find(p => p.personaId === result.bestPersonaId) || personas[0];
+
+        return {
+          profile,
+          bestPersona,
+          bestScore: Math.max(0, Math.min(100, result.score || 0)),
+          reason: result.reason || 'No reason provided'
+        };
+      });
+
+    } catch (error) {
+      this.log('error', 'Batch AI scoring failed', {
+        error: error.message,
+        stack: error.stack,
+        profilesCount: profiles.length
+      });
+
+      // Fallback: return 0 scores for all
+      return profiles.map(profile => ({
+        profile,
+        bestPersona: personas[0],
+        bestScore: 0,
+        reason: `Scoring error: ${error.message}`
+      }));
+    }
+  }
+
+  /**
+   * Score profile match against persona using AI (DEPRECATED - use batchScoreProfiles instead)
    */
   async scoreProfileMatch(profile, persona, gemini) {
     const matchPrompt = `Evaluate if this Bluesky profile matches our marketing persona.
