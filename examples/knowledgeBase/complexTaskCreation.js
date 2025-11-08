@@ -2779,6 +2779,344 @@ class Semaphore {
 }
 \`\`\`
 
+## Bluesky API Integration Patterns
+
+### Pattern 1: Prospect Discovery and Analysis Report
+
+**Use Case**: Analyze Bluesky feed to identify and score potential marketing prospects.
+
+**Key Bluesky API Endpoints**:
+- \`agent.getTimeline()\` - Fetch home timeline (algorithmic)
+- \`agent.getProfile()\` - Get full profile by DID
+- \`agent.getSuggestions()\` - Get suggested follows
+- \`agent.searchActors()\` - Search profiles by term
+
+**Template Structure**:
+\`\`\`javascript
+{
+  templateId: "bluesky_prospect_discovery",
+  name: "Bluesky Prospect Discovery Report",
+  description: "Analyzes Bluesky feed and suggested profiles to identify prospects",
+  enabled: true,
+  category: "bluesky",
+  version: "1.0.0",
+  parameters: {
+    lookbackHours: { type: "number", default: 24 },
+    minProspectScore: { type: "number", default: 75 },
+    maxProspects: { type: "number", default: 20 },
+    includeActivityAnalysis: { type: "boolean", default: true }
+  },
+  executionScript: \`
+    async execute(params, context) {
+      const bsky = context.getBskyService();
+      const gemini = context.getGeminiService();
+
+      // Initialize Bluesky
+      await this.updateProgress(10, 'Connecting to Bluesky...');
+      const initialized = await bsky.initialize();
+      if (!initialized) {
+        throw new Error('Bluesky service not available');
+      }
+
+      // Fetch timeline
+      await this.updateProgress(20, 'Fetching timeline feed...');
+      const timeline = await bsky.getFeed('timeline', 100);
+
+      // Filter by lookback time
+      const cutoffTime = new Date(Date.now() - params.lookbackHours * 60 * 60 * 1000);
+      const recentPosts = timeline.filter(item => {
+        return new Date(item.post.indexedAt) >= cutoffTime;
+      });
+
+      this.log('info', 'Timeline fetched', {
+        total: timeline.length,
+        recent: recentPosts.length
+      });
+
+      // Extract unique authors
+      await this.updateProgress(30, 'Analyzing authors...');
+      const authorMap = new Map();
+
+      for (const item of recentPosts) {
+        const did = item.post.author.did;
+        if (!authorMap.has(did)) {
+          authorMap.set(did, {
+            author: item.post.author,
+            posts: []
+          });
+        }
+        authorMap.get(did).posts.push(item.post);
+      }
+
+      // Fetch full profiles and analyze
+      await this.updateProgress(50, 'Evaluating prospects...');
+      const prospects = [];
+      const authors = Array.from(authorMap.values()).slice(0, 40); // Limit batch
+
+      for (const { author, posts } of authors) {
+        try {
+          // Get full profile
+          const profile = await bsky.getProfile(author.did);
+
+          // AI prospect evaluation
+          const evaluation = await this.evaluateProspect(
+            profile,
+            posts,
+            gemini
+          );
+
+          if (evaluation.score >= params.minProspectScore) {
+            prospects.push({
+              profile,
+              posts: posts.slice(0, 5), // Limit posts in report
+              score: evaluation.score,
+              reason: evaluation.reason,
+              buyingSignals: evaluation.buyingSignals
+            });
+          }
+        } catch (error) {
+          this.log('warn', 'Profile fetch failed', { did: author.did });
+        }
+      }
+
+      // Sort by score
+      prospects.sort((a, b) => b.score - a.score);
+      const topProspects = prospects.slice(0, params.maxProspects);
+
+      await this.updateProgress(90, 'Generating report...');
+
+      // Generate HTML report
+      const reportData = {
+        prospects: topProspects,
+        lookbackHours: params.lookbackHours,
+        postsAnalyzed: recentPosts.length,
+        authorsAnalyzed: authorMap.size,
+        generatedAt: new Date().toISOString()
+      };
+
+      const html = this.generateHTMLReport(reportData, params);
+
+      await this.updateProgress(100, 'Complete!');
+
+      return {
+        html,
+        summary: \\\`Found \\\${topProspects.length} qualified prospects from \\\${authorMap.size} authors\\\`
+      };
+    }
+
+    async evaluateProspect(profile, posts, gemini) {
+      const prompt = \\\`Evaluate this Bluesky user as a marketing prospect (0-100):
+
+Profile:
+- Handle: @\\\${profile.handle}
+- Bio: \\\${profile.description || 'No bio'}
+- Followers: \\\${profile.followersCount}
+
+Recent Posts:
+\\\${posts.slice(0, 3).map(p => \\\`- "\\\${p.record.text}"\\\`).join('\\\\n')}
+
+Score 0-100 and identify buying signals.
+
+Respond with JSON:
+{ "score": 75, "reason": "...", "buyingSignals": ["signal1"] }\\\`;
+
+      const response = await gemini.generateResponse(prompt, {
+        temperature: 0.3,
+        maxTokens: 300
+      });
+
+      const jsonMatch = response.match(/\\{[\\s\\S]*\\}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+
+      return { score: 0, reason: 'Failed to parse', buyingSignals: [] };
+    }
+
+    generateHTMLReport(reportData, params) {
+      const { prospects, lookbackHours, postsAnalyzed, authorsAnalyzed, generatedAt } = reportData;
+
+      return \\\`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Bluesky Prospect Discovery Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f5f8fa; }
+    .header { background: #1DA1F2; color: white; padding: 20px; border-radius: 8px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0; }
+    .stat-card { background: white; padding: 15px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .prospect { background: white; padding: 20px; margin: 15px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .score { font-size: 24px; font-weight: bold; color: #1DA1F2; }
+    .posts { margin-top: 15px; padding-left: 20px; }
+    .post { margin: 8px 0; color: #555; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎯 Bluesky Prospect Discovery Report</h1>
+    <p>Generated: \\\${new Date(generatedAt).toLocaleString()}</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card">
+      <h3>\\\${postsAnalyzed}</h3>
+      <p>Posts Analyzed</p>
+    </div>
+    <div class="stat-card">
+      <h3>\\\${authorsAnalyzed}</h3>
+      <p>Unique Authors</p>
+    </div>
+    <div class="stat-card">
+      <h3>\\\${prospects.length}</h3>
+      <p>Qualified Prospects</p>
+    </div>
+    <div class="stat-card">
+      <h3>\\\${lookbackHours}h</h3>
+      <p>Time Window</p>
+    </div>
+  </div>
+
+  <h2>Top Prospects</h2>
+  \\\${prospects.slice(0, 10).map((prospect, idx) => \\\`
+    <div class="prospect">
+      <div style="display: flex; justify-content: space-between; align-items: start;">
+        <div>
+          <h3>\\\${idx + 1}. @\\\${prospect.profile.handle}</h3>
+          <p><strong>\\\${prospect.profile.displayName || 'No display name'}</strong></p>
+        </div>
+        <div class="score">\\\${prospect.score}/100</div>
+      </div>
+
+      <p><strong>Bio:</strong> \\\${prospect.profile.description || 'No bio'}</p>
+      <p><strong>Stats:</strong> \\\${prospect.profile.followersCount} followers, \\\${prospect.posts.length} recent posts</p>
+      <p><strong>Why:</strong> \\\${prospect.reason}</p>
+
+      \\\${prospect.buyingSignals.length > 0 ? \\\`
+        <p><strong>🚨 Buying Signals:</strong> \\\${prospect.buyingSignals.join(', ')}</p>
+      \\\` : ''}
+
+      <div class="posts">
+        <strong>Recent Posts:</strong>
+        \\\${prospect.posts.slice(0, 3).map(post => \\\`
+          <div class="post">
+            "\\\${post.record.text.substring(0, 150)}\\\${post.record.text.length > 150 ? '...' : ''}"
+            <br><small>\\\${post.likeCount} likes, \\\${post.repostCount} reposts</small>
+          </div>
+        \\\`).join('')}
+      </div>
+
+      <p><a href="https://bsky.app/profile/\\\${prospect.profile.handle}" target="_blank">View Profile →</a></p>
+    </div>
+  \\\`).join('')}
+</body>
+</html>\\\`;
+    }
+  \`
+}
+\`\`\`
+
+### Pattern 2: Content Publishing with Analytics
+
+**Use Case**: Post content to Bluesky with embedded links/images and track engagement.
+
+**Key Bluesky API Endpoints**:
+- \`agent.post()\` - Create post
+- \`agent.uploadBlob()\` - Upload images
+- \`RichText.detectFacets()\` - Auto-detect mentions and links
+
+**Template Structure**:
+\`\`\`javascript
+{
+  templateId: "bluesky_content_publisher",
+  name: "Bluesky Content Publisher",
+  description: "Posts content to Bluesky with rich formatting and tracking",
+  executionScript: \`
+    async execute(params, context) {
+      const bsky = context.getBskyService();
+      const { RichText } = require('@atproto/api');
+
+      await this.updateProgress(20, 'Connecting to Bluesky...');
+      await bsky.initialize();
+
+      // Prepare rich text with auto-detection
+      const rt = new RichText({
+        text: params.content
+      });
+
+      await this.updateProgress(40, 'Processing mentions and links...');
+      await rt.detectFacets(bsky.agent);
+
+      // Upload image if provided
+      let embed = undefined;
+      if (params.imageUrl) {
+        await this.updateProgress(60, 'Uploading image...');
+        const imageBuffer = await this.downloadImage(params.imageUrl);
+        const { data } = await bsky.agent.uploadBlob(imageBuffer, {
+          encoding: 'image/jpeg'
+        });
+
+        embed = {
+          $type: 'app.bsky.embed.images',
+          images: [{
+            image: data.blob,
+            alt: params.imageAlt || 'Image'
+          }]
+        };
+      }
+
+      // Create post
+      await this.updateProgress(80, 'Publishing post...');
+      const post = await bsky.agent.post({
+        text: rt.text,
+        facets: rt.facets,
+        embed,
+        langs: ['en']
+      });
+
+      this.log('info', 'Post created', { uri: post.uri });
+
+      await this.updateProgress(100, 'Published!');
+
+      return {
+        html: this.generateHTMLReport({ post, content: params.content }, params),
+        summary: \\\`Posted to Bluesky: \\\${post.uri}\\\`
+      };
+    }
+  \`
+}
+\`\`\`
+
+### Bluesky-Specific Considerations
+
+**Rate Limiting**:
+- 5,000 points per 5 minutes per DID
+- Read operations: 1 point
+- Create operations: 3 points
+- Implement exponential backoff on 429 errors
+
+**Error Handling**:
+\`\`\`javascript
+try {
+  const profile = await bsky.agent.getProfile({ actor: did });
+} catch (error) {
+  if (error.status === 429) {
+    // Rate limited - wait and retry
+    await new Promise(resolve => setTimeout(resolve, 60000));
+    // Retry...
+  } else if (error.status === 401) {
+    // Session expired - re-authenticate
+    await bsky.initialize();
+    // Retry...
+  }
+}
+\`\`\`
+
+**Data Storage**:
+- Always store DIDs (permanent), not handles (can change)
+- Cache profile data to reduce API calls (TTL: 1 hour)
+- Use Firestore collections: \`bluesky-prospects\`, \`bluesky-followed-profiles\`
+
 This advanced patterns guide provides sophisticated techniques for building robust, performant, and resilient complex tasks that handle real-world scenarios effectively.
 `;
 
