@@ -161,51 +161,91 @@ class BskyFeedAnalyzer extends BaseTool {
 
     this.log('info', 'Unique authors extracted', { authorsCount: authorMap.size });
 
-    // Analyze each author for prospect potential
-    const prospects = [];
+    // PHASE 1: Collect all candidate profiles (filter existing prospects before fetching profiles)
+    const candidateAuthors = [];
+    let authorsSkippedAlreadyQualified = 0;
 
     for (const [did, data] of authorMap.entries()) {
       const { author, posts: authorPosts } = data;
 
-      // Skip if already in prospects collection
+      // Skip if already in prospects collection as qualified
       const existingProspect = await this.getExistingProspect(did);
       if (existingProspect && existingProspect.status === 'qualified') {
-        this.log('info', 'Author already qualified prospect, skipping', { handle: author.handle });
+        this.log('debug', 'Author already qualified prospect, skipping', { handle: author.handle });
+        authorsSkippedAlreadyQualified++;
         continue;
       }
 
-      // Get full profile
-      let profile;
+      candidateAuthors.push({ did, author, posts: authorPosts });
+    }
+
+    this.log('info', 'Candidate authors ready for profile fetch', {
+      total: candidateAuthors.length,
+      skippedAlreadyQualified: authorsSkippedAlreadyQualified
+    });
+
+    // PHASE 2: Fetch full profiles for candidates
+    const profilesWithPosts = [];
+
+    for (const candidate of candidateAuthors) {
       try {
-        profile = await bsky.getProfile(did);
-      } catch (error) {
-        this.log('warn', 'Failed to fetch profile', { did, error: error.message });
-        continue;
-      }
+        const profile = await bsky.getProfile(candidate.did);
 
-      // Quality filtering disabled - analyze all profiles regardless of followers/posts
-      // if (profile.followersCount < 10 || profile.postsCount < 5) {
-      //   continue;
-      // }
+        // Quality filtering disabled - analyze all profiles regardless of followers/posts
+        // if (profile.followersCount < 10 || profile.postsCount < 5) {
+        //   continue;
+        // }
 
-      // AI prospect scoring
-      const prospectEval = await this.evaluateProspect({
-        profile,
-        recentPosts: authorPosts,
-        personas,
-        gemini
-      });
-
-      if (prospectEval.score >= minProspectScore) {
-        prospects.push({
-          did,
+        profilesWithPosts.push({
           profile,
-          posts: authorPosts,
-          prospectScore: prospectEval.score,
-          prospectReason: prospectEval.reason,
-          personaMatches: prospectEval.personaMatches,
-          buyingSignals: prospectEval.buyingSignals
+          posts: candidate.posts,
+          did: candidate.did
         });
+      } catch (error) {
+        this.log('warn', 'Failed to fetch profile', { did: candidate.did, error: error.message });
+      }
+    }
+
+    this.log('info', 'Profiles fetched, ready for batch AI scoring', {
+      profilesCount: profilesWithPosts.length
+    });
+
+    // PHASE 3: BATCH AI scoring - send ALL profiles to AI in ONE request
+    const maxCandidates = 40; // Limit to avoid token overflow
+    const profilesToScore = profilesWithPosts.slice(0, maxCandidates);
+
+    this.log('info', 'Starting batch AI prospect evaluation', {
+      profilesCount: profilesToScore.length,
+      personasCount: personas.length
+    });
+
+    const scoringResults = await this.batchEvaluateProspects({
+      profilesWithPosts: profilesToScore,
+      personas,
+      gemini
+    });
+
+    this.log('info', 'Batch AI scoring complete', {
+      resultsCount: scoringResults.length
+    });
+
+    // PHASE 4: Process scoring results and build prospects list
+    const prospects = [];
+    let profilesBelowThreshold = 0;
+
+    for (const result of scoringResults) {
+      if (result.score >= minProspectScore) {
+        prospects.push({
+          did: result.did,
+          profile: result.profile,
+          posts: result.posts,
+          prospectScore: result.score,
+          prospectReason: result.reason,
+          personaMatches: result.personaMatches,
+          buyingSignals: result.buyingSignals
+        });
+      } else {
+        profilesBelowThreshold++;
       }
     }
 
@@ -217,7 +257,10 @@ class BskyFeedAnalyzer extends BaseTool {
 
     this.log('info', 'Prospect analysis complete', {
       totalProspects: prospects.length,
-      topProspects: topProspects.length
+      topProspects: topProspects.length,
+      profilesScored: scoringResults.length,
+      profilesBelowThreshold,
+      authorsSkippedAlreadyQualified
     });
 
     // Store prospects in Firestore
@@ -270,7 +313,145 @@ class BskyFeedAnalyzer extends BaseTool {
   }
 
   /**
-   * Evaluate if profile is a qualified prospect using AI
+   * BATCH evaluate multiple prospects in ONE AI call (EFFICIENT)
+   * Evaluates all profiles against all personas in a single request
+   */
+  async batchEvaluateProspects({ profilesWithPosts, personas, gemini }) {
+    // Build comprehensive prompt with ALL profiles and ALL personas
+    const profilesList = profilesWithPosts.map((item, idx) => {
+      const p = item.profile;
+      const posts = item.posts.slice(0, 3); // Limit to 3 most recent posts per profile
+
+      return `
+**Profile ${idx + 1}:**
+- Handle: @${p.handle}
+- Display Name: ${p.displayName || 'Not set'}
+- Bio: ${p.description || 'No bio'}
+- Followers: ${p.followersCount}
+- Posts: ${p.postsCount}
+- Recent Posts: ${posts.map(post => `"${post.text.substring(0, 100)}${post.text.length > 100 ? '...' : ''}" (${post.likeCount} likes)`).join(' | ')}`;
+    }).join('\n');
+
+    const personasList = personas.map((p, idx) => `
+**Persona ${idx + 1}: ${p.name}** (ID: ${p.personaId})
+- Industry: ${p.industry || 'Not specified'}
+- Job Titles: ${p.jobTitles ? p.jobTitles.join(', ') : 'Not specified'}
+- Interests: ${p.interests ? p.interests.join(', ') : 'Not specified'}
+- Pain Points: ${p.painPoints ? p.painPoints.join(', ') : 'Not specified'}
+- Buying Signals: ${p.buyingSignals ? p.buyingSignals.join(', ') : 'Not specified'}`).join('\n');
+
+    const batchPrompt = `Evaluate ${profilesWithPosts.length} Bluesky profiles as potential marketing prospects.
+
+**TARGET PERSONAS:**
+${personasList}
+
+**PROFILES TO EVALUATE:**
+${profilesList}
+
+**TASK:** For EACH profile, score 0-100 (0=not a prospect, 100=highly qualified).
+
+**Scoring Criteria:**
+1. Profile matches persona industry/role (check bio and display name)
+2. Recent posts show pain points we solve or buying signals
+3. Engagement indicates active, influential user
+4. Bio/posts show decision-making authority or budget control
+5. Recent activity suggests current need or interest
+
+**CRITICAL: Respond with ONLY a JSON array, one object per profile, in the SAME order:**
+
+[
+  {
+    "profileIndex": 1,
+    "score": 85,
+    "reason": "Two sentence explanation",
+    "personaMatches": ["persona_id_1"],
+    "buyingSignals": ["signal 1", "signal 2"]
+  },
+  {
+    "profileIndex": 2,
+    "score": 0,
+    "reason": "Not a match - explain why",
+    "personaMatches": [],
+    "buyingSignals": []
+  }
+]
+
+IMPORTANT: Return exactly ${profilesWithPosts.length} results in the same order as input profiles.`;
+
+    try {
+      const response = await gemini.generateResponse(batchPrompt, {
+        temperature: 0.3,
+        maxTokens: 4000 // Larger limit for batch responses
+      });
+
+      // Parse JSON array response
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        this.log('error', 'AI batch response not in expected JSON array format', { response });
+        // Fallback: return 0 scores for all
+        return profilesWithPosts.map(item => ({
+          profile: item.profile,
+          posts: item.posts,
+          did: item.did,
+          score: 0,
+          reason: 'Invalid AI response format',
+          personaMatches: [],
+          buyingSignals: []
+        }));
+      }
+
+      const results = JSON.parse(jsonMatch[0]);
+
+      // Map results back to profiles
+      return profilesWithPosts.map((item, idx) => {
+        const result = results.find(r => r.profileIndex === idx + 1) || results[idx];
+
+        if (!result) {
+          return {
+            profile: item.profile,
+            posts: item.posts,
+            did: item.did,
+            score: 0,
+            reason: 'No AI result for this profile',
+            personaMatches: [],
+            buyingSignals: []
+          };
+        }
+
+        return {
+          profile: item.profile,
+          posts: item.posts,
+          did: item.did,
+          score: Math.max(0, Math.min(100, result.score || 0)),
+          reason: result.reason || 'No reason provided',
+          personaMatches: result.personaMatches || [],
+          buyingSignals: result.buyingSignals || []
+        };
+      });
+
+    } catch (error) {
+      this.log('error', 'Batch AI prospect evaluation failed', {
+        error: error.message,
+        stack: error.stack,
+        profilesCount: profilesWithPosts.length
+      });
+
+      // Fallback: return 0 scores for all
+      return profilesWithPosts.map(item => ({
+        profile: item.profile,
+        posts: item.posts,
+        did: item.did,
+        score: 0,
+        reason: `Evaluation error: ${error.message}`,
+        personaMatches: [],
+        buyingSignals: []
+      }));
+    }
+  }
+
+  /**
+   * DEPRECATED: Evaluate single prospect (use batchEvaluateProspects instead)
+   * Kept for backward compatibility only
    */
   async evaluateProspect({ profile, recentPosts, personas, gemini }) {
     const prospectPrompt = `Evaluate if this Bluesky user is a qualified marketing prospect.
