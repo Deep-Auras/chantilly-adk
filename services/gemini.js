@@ -790,7 +790,13 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
                   }
                   // If result is an object/array without message field, format it for display
                   return JSON.stringify(tr.result, null, 2);
-                }).join('\n\n')}\n\nCRITICAL: If the tool returned structured data (JSON/objects), convert it to user-friendly prose or lists. If the tool returned a formatted text message, present it exactly as written. Do NOT fabricate structured data or additional fields that were not in the actual tool output.`
+                }).join('\n\n')}\n\nCRITICAL INSTRUCTIONS:
+1. If the tool returned a formatted message starting with ✅ or containing "Posted to Bluesky" or "created successfully" - the action is ALREADY COMPLETE. DO NOT say "here's a draft" or "for your review". The tool EXECUTED the action.
+2. If the tool says it posted/created/updated something, relay that EXACTLY. DO NOT rewrite success messages as drafts or suggestions.
+3. If the tool returned structured data (JSON/objects), convert it to user-friendly prose or lists.
+4. If the tool returned a formatted text message, present it exactly as written.
+5. DO NOT fabricate structured data or additional fields that were not in the actual tool output.
+6. DO NOT add phrases like "I've drafted", "for your review", "let me know if you'd like to post" when the tool already performed the action.`
             }]
           }
         ],
