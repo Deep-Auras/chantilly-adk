@@ -748,6 +748,13 @@ class BskyService {
         langs: options.langs || ['en']
       };
 
+      logger.info('Calling BskyAgent.post() with data', {
+        textLength: postData.text.length,
+        textPreview: postData.text.substring(0, 100),
+        createdAt: postData.createdAt,
+        langs: postData.langs
+      });
+
       const response = await this.agent.post(postData);
 
       if (!response) {
@@ -777,7 +784,12 @@ class BskyService {
         url: `https://bsky.app/profile/${this.session.did}/post/${response.uri.split('/').pop()}`
       };
     } catch (error) {
-      logger.error('Failed to create post', { error: error.message });
+      logger.error('Failed to create post', {
+        error: error.message,
+        stack: error.stack,
+        textLength: text?.length,
+        postData: { text: text.substring(0, 100) + '...', createdAt: options.createdAt, langs: options.langs }
+      });
       throw error;
     }
   }
