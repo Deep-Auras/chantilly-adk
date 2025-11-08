@@ -6,18 +6,10 @@
  * Example: node scripts/addKBToDb.js examples/knowledgeBase/bitrix24ApiIntegration.js
  */
 
-const admin = require('firebase-admin');
 const path = require('path');
+const { initializeFirestore, getFirestore, getFieldValue } = require('../config/firestore');
 
-// Initialize Firebase Admin with service account
-const serviceAccount = require('../service_account.json');
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  projectId: serviceAccount.project_id
-});
-
-const { getFirestore } = require('firebase-admin/firestore');
-const db = getFirestore('chantilly-agent-${AGENT_NAME}');
+let db;
 
 async function addKnowledgeBaseDocument(kbFile) {
   try {
@@ -61,6 +53,7 @@ async function addKnowledgeBaseDocument(kbFile) {
       console.log('   Content Length:', entry.content.length, 'characters');
       
       // Prepare entry for Firestore
+      const FieldValue = getFieldValue();
       const firestoreEntry = {
         title: entry.title,
         content: entry.content,
@@ -70,8 +63,8 @@ async function addKnowledgeBaseDocument(kbFile) {
         priority: entry.priority || 50,
         enabled: entry.enabled !== undefined ? entry.enabled : true,
         // Add Firestore timestamps
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
         createdBy: 'system'
       };
       
@@ -197,9 +190,13 @@ async function listExistingKnowledgeBase() {
 // Main execution
 async function main() {
   const args = process.argv.slice(2);
-  
+
   console.log('🚀 Knowledge Base Database Installer\n');
-  
+
+  // Initialize Firestore first
+  await initializeFirestore();
+  db = getFirestore();
+
   if (args.length === 0) {
     console.log('Usage: node scripts/addKBToDb.js <knowledge-base-file>');
     console.log('Example: node scripts/addKBToDb.js examples/knowledgeBase/bitrix24ApiIntegration.js');
@@ -207,15 +204,15 @@ async function main() {
     await listExistingKnowledgeBase();
     process.exit(0);
   }
-  
+
   const kbFile = args[0];
-  
+
   // First check existing entries
   await listExistingKnowledgeBase();
-  
+
   // Add the specified knowledge base
   await addKnowledgeBaseDocument(kbFile);
-  
+
   process.exit(0);
 }
 
