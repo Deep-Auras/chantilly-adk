@@ -40,7 +40,7 @@ class BskyPersonaFollow extends BaseTool {
         },
         matchThreshold: {
           type: 'number',
-          description: 'Minimum match score (0-100) to consider profile a good match (default: 75)'
+          description: 'Minimum match score (0-100) to consider profile a good match (default: 50)'
         },
         maxFollows: {
           type: 'number',
@@ -65,7 +65,7 @@ class BskyPersonaFollow extends BaseTool {
     const {
       action = 'search',
       personaIds = null,
-      matchThreshold = 75,
+      matchThreshold = 50, // 50% threshold - balanced between too selective and too broad
       maxFollows = 10,
       dryRun = false
     } = args;
@@ -134,6 +134,12 @@ class BskyPersonaFollow extends BaseTool {
 
     // Search profiles (limit to avoid quota exhaustion)
     const maxSearches = Math.min(searchQueries.length, 10);
+    let profilesScanned = 0;
+    let profilesSkippedLowFollowers = 0;
+    let profilesSkippedAlreadyFollowed = 0;
+    let profilesBelowThreshold = 0;
+    const allScores = []; // Track all scores for debugging
+
     for (let i = 0; i < maxSearches; i++) {
       const { query, persona } = searchQueries[i];
 
@@ -144,19 +150,38 @@ class BskyPersonaFollow extends BaseTool {
 
         // Score each profile against persona
         for (const profile of profiles) {
+          profilesScanned++;
+
           // Skip profiles with low follower count (likely bots)
           if (profile.followersCount < 10) {
+            profilesSkippedLowFollowers++;
             continue;
           }
 
           // Skip if already followed
           const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
           if (alreadyFollowed) {
+            profilesSkippedAlreadyFollowed++;
             continue;
           }
 
           // AI match scoring
           const matchScore = await this.scoreProfileMatch(profile, persona, gemini);
+
+          // Log score for debugging
+          this.log('debug', 'Profile scored', {
+            handle: profile.handle,
+            score: matchScore.score,
+            threshold: matchThreshold,
+            reason: matchScore.reason,
+            persona: persona.name
+          });
+
+          allScores.push({
+            handle: profile.handle,
+            score: matchScore.score,
+            reason: matchScore.reason
+          });
 
           if (matchScore.score >= matchThreshold) {
             allMatches.push({
@@ -165,12 +190,25 @@ class BskyPersonaFollow extends BaseTool {
               matchScore: matchScore.score,
               matchReason: matchScore.reason
             });
+          } else {
+            profilesBelowThreshold++;
           }
         }
       } catch (error) {
         this.log('warn', 'Profile search failed', { query, error: error.message });
       }
     }
+
+    // Log summary statistics
+    this.log('info', 'Profile scanning complete', {
+      profilesScanned,
+      profilesSkippedLowFollowers,
+      profilesSkippedAlreadyFollowed,
+      profilesBelowThreshold,
+      matchesFound: allMatches.length,
+      matchThreshold,
+      topScores: allScores.sort((a, b) => b.score - a.score).slice(0, 5)
+    });
 
     // Sort by match score (highest first)
     allMatches.sort((a, b) => b.matchScore - a.matchScore);
