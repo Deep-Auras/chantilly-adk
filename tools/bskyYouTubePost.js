@@ -40,7 +40,7 @@ class BskyYouTubePost extends BaseTool {
         },
         maxLength: {
           type: 'number',
-          description: 'Maximum post character length (default: 280, max: 300)'
+          description: 'Maximum post character length (default: 300, Bluesky limit)'
         },
         includeFact: {
           type: 'boolean',
@@ -66,7 +66,7 @@ class BskyYouTubePost extends BaseTool {
     const {
       youtubeUrl,
       personaIds = null,
-      maxLength = 280,
+      maxLength = 300,
       includeFact = true,
       tone = 'engaging'
     } = args;
@@ -124,7 +124,29 @@ class BskyYouTubePost extends BaseTool {
       }
 
       // Step 4: Add YouTube link with facets for clickability
-      const finalPost = `${postText}\n\n🎥 ${youtubeUrl}`;
+      let finalPost = `${postText}\n\n🎥 ${youtubeUrl}`;
+
+      // CRITICAL: Validate total length does not exceed Bluesky's 300 character limit
+      if (finalPost.length > 300) {
+        this.log('warn', 'Final post exceeds 300 chars, truncating', {
+          originalLength: finalPost.length,
+          postTextLength: postText.length,
+          urlLength: youtubeUrl.length
+        });
+
+        // Calculate how much to trim from postText
+        const overhead = `\n\n🎥 ${youtubeUrl}`.length;
+        const maxPostText = 300 - overhead;
+
+        // Truncate at sentence boundary
+        postText = this.truncateAtSentence(postText, maxPostText);
+        finalPost = `${postText}\n\n🎥 ${youtubeUrl}`;
+
+        this.log('info', 'Post truncated to fit limit', {
+          newLength: finalPost.length,
+          newPostTextLength: postText.length
+        });
+      }
 
       // Calculate byte position of URL for facets (Bluesky uses UTF-8 byte positions)
       const textBeforeUrl = `${postText}\n\n🎥 `;
@@ -146,9 +168,18 @@ class BskyYouTubePost extends BaseTool {
 
       this.log('info', 'Post generated with facets', {
         length: finalPost.length,
+        withinLimit: finalPost.length <= 300,
         facets: facets.length,
         urlByteRange: `${byteStart}-${byteEnd}`
       });
+
+      // Final safety check (should never happen with above validation)
+      if (finalPost.length > 300) {
+        this.log('error', 'CRITICAL: Final post still exceeds 300 chars after validation', {
+          length: finalPost.length
+        });
+        return `❌ Generated post exceeds Bluesky's 300 character limit (${finalPost.length} chars). Please try with shorter content or disable includeFact.`;
+      }
 
       // Step 5: Post to Bluesky (ALWAYS - no draft mode)
       return await this.postToBsky({
@@ -320,8 +351,8 @@ ${includeFact && videoAnalysis.surprisingFact ? `- Surprising Fact: ${videoAnaly
 
 ${personaContext}
 
-**Requirements:**
-1. Maximum ${maxLength} characters (Bluesky limit is 300)
+**CRITICAL Requirements:**
+1. Maximum ${maxLength - 50} characters (STRICT LIMIT - YouTube link adds ~50 chars, Bluesky total limit is 300)
 2. Start with attention-grabbing hook relevant to ${personas.length > 0 ? 'persona interests' : 'video topic'}
 3. Include 1-2 key insights from the video
 ${includeFact ? '4. Add the surprising fact if it fits naturally' : ''}
@@ -331,7 +362,9 @@ ${includeFact ? '4. Add the surprising fact if it fits naturally' : ''}
 8. Make it conversational and authentic, not salesy
 9. Create urgency or curiosity to drive video views
 
-DO NOT include the YouTube link (will be added separately).
+DO NOT include the YouTube link (will be added separately with "🎥 [URL]").
+
+IMPORTANT: Stay UNDER ${maxLength - 50} characters to leave room for the YouTube link.
 
 Format: Plain text only, no markdown. Natural line breaks for readability.`;
 

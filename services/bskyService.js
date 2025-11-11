@@ -865,10 +865,14 @@ class BskyService {
 
     try {
       if (!text || text.length > 300) {
-        throw new Error('Post text must be 1-300 characters');
+        const errorMsg = text
+          ? `Post text exceeds Bluesky's 300 character limit (${text.length} characters)`
+          : 'Post text cannot be empty';
+        logger.error('Post validation failed', { textLength: text?.length || 0, limit: 300 });
+        throw new Error(errorMsg);
       }
 
-      logger.info('Creating Bluesky post', { textLength: text.length });
+      logger.info('Creating Bluesky post', { textLength: text.length, limit: 300, remaining: 300 - text.length });
 
       const postData = {
         text,
