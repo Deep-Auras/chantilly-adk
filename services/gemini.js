@@ -521,7 +521,7 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         requestConfig.config.systemInstruction = enhancedSystemInstruction;
       }
 
-      logger.info('Sending request to Gemini 2.5 Pro', {
+      logger.info(`Sending request to ${config.GEMINI_MODEL}`, {
         hasTools: !!requestConfig.config?.tools,
         toolCount: toolDeclarations.length,
         hasSystemInstruction: !!systemInstruction,

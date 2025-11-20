@@ -203,70 +203,93 @@ class GoogleChatService {
       };
 
       // PHASE 16.2: AUTOMATIC TIMEOUT DETECTION
-      // Google Chat has a 60-second hard timeout. Instead of manually detecting patterns,
-      // we start a timer and automatically switch to async mode if processing takes >50s.
+      // Google Chat has a 60-second hard timeout. We use Promise.race to automatically
+      // switch to async mode if processing takes >50s, WITHOUT duplicate processing.
 
       const WEBHOOK_TIMEOUT_MS = 50000; // 50s safety margin (60s hard limit)
       let timeoutReached = false;
-      let responsePromiseResolver = null;
-      let responsePromiseRejector = null;
 
-      // Create a promise that resolves with the acknowledgment message if timeout is reached
-      const timeoutPromise = new Promise((resolve, reject) => {
-        responsePromiseResolver = resolve;
-        responsePromiseRejector = reject;
-
+      // Timeout promise - resolves with acknowledgment after 50s
+      const timeoutPromise = new Promise(resolve => {
         setTimeout(() => {
-          if (!timeoutReached) {
-            timeoutReached = true;
-            logger.warn('Google Chat webhook timeout approaching, switching to async mode', {
-              messageText: message.text.substring(0, 100),
-              elapsedMs: WEBHOOK_TIMEOUT_MS
-            });
-
-            // Start async processing
-            this.processMessageAsync(messageData, eventData, conversationId)
-              .catch(error => {
-                logger.error('Async message processing failed after timeout', { error: error.message });
-              });
-
-            // Resolve with acknowledgment
-            resolve(this.createCardResponse(
+          timeoutReached = true;
+          logger.warn('Google Chat webhook timeout approaching, returning acknowledgment', {
+            messageText: message.text.substring(0, 100),
+            elapsedMs: WEBHOOK_TIMEOUT_MS
+          });
+          resolve({
+            type: 'timeout',
+            response: this.createCardResponse(
               '⏳ Your request is taking longer than expected. Processing in the background... I\'ll send the result shortly.'
-            ));
-          }
+            )
+          });
         }, WEBHOOK_TIMEOUT_MS);
       });
 
-      // Start processing
+      // Processing promise - returns result when processing completes
       const processingPromise = (async () => {
         try {
           const gemini = getGeminiService();
           const result = await gemini.processMessage(messageData, eventData);
+          const responseText = result?.reply || 'Message processed successfully.';
 
-          // If timeout hasn't been reached, return the result normally
-          if (!timeoutReached) {
-            const responseText = result?.reply || 'Message processed successfully.';
-            await this.cacheMessage(conversationId, user, message.text, responseText);
-            responsePromiseResolver(this.createCardResponse(responseText));
-            return;
-          }
-
-          // If timeout WAS reached, the response was already sent.
-          // The async handler will send the final result via Chat API.
-          logger.info('Processing completed after timeout, result will be sent via Chat API');
+          return {
+            type: 'completed',
+            responseText: responseText,
+            threadKey: eventData.message?.thread?.name || null
+          };
         } catch (error) {
-          if (!timeoutReached) {
-            responsePromiseRejector(error);
-          } else {
-            // Error occurred after timeout - async handler will deal with it
-            throw error;
-          }
+          return {
+            type: 'error',
+            error: error,
+            threadKey: eventData.message?.thread?.name || null
+          };
         }
       })();
 
       // Race between timeout and processing completion
-      return await Promise.race([timeoutPromise, processingPromise]);
+      const raceResult = await Promise.race([timeoutPromise, processingPromise]);
+
+      if (raceResult.type === 'timeout') {
+        // Timeout won the race - return acknowledgment immediately
+        // Processing continues in the background
+        processingPromise.then(async result => {
+          if (result.type === 'completed') {
+            // Send actual result via Chat API
+            logger.info('Processing completed after timeout, sending result via Chat API');
+            await this.cacheMessage(conversationId, user, message.text, result.responseText);
+            await this.sendMessage(eventData.space.name, result.responseText, result.threadKey);
+          } else if (result.type === 'error') {
+            // Send error via Chat API
+            logger.error('Error after timeout, sending error via Chat API', {
+              error: result.error.message
+            });
+            try {
+              await this.sendMessage(
+                eventData.space.name,
+                `❌ Sorry, I encountered an error: ${result.error.message}`,
+                result.threadKey
+              );
+            } catch (sendError) {
+              logger.error('Failed to send error via Chat API', { error: sendError.message });
+            }
+          }
+        }).catch(error => {
+          logger.error('Unhandled error in background processing', { error: error.message });
+        });
+
+        return raceResult.response; // Return acknowledgment
+      } else if (raceResult.type === 'completed') {
+        // Processing won the race - return normal response
+        await this.cacheMessage(conversationId, user, message.text, raceResult.responseText);
+        return this.createCardResponse(raceResult.responseText);
+      } else if (raceResult.type === 'error') {
+        // Error occurred before timeout
+        logger.error('Error during processing', { error: raceResult.error.message });
+        return {
+          text: '❌ Sorry, I encountered an error processing your message.'
+        };
+      }
     } catch (error) {
       logger.error('Error handling Google Chat message', { error: error.message, stack: error.stack });
       return {
