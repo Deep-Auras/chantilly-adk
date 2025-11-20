@@ -369,9 +369,19 @@ class BskyService {
       const response = await this.agent.login({ identifier: username, password });
 
       if (!response.success) {
-        logger.error('Bluesky login failed', { username });
+        logger.error('Bluesky login failed', {
+          username,
+          responseData: response.data || 'no data',
+          responseHeaders: response.headers || 'no headers'
+        });
         return false;
       }
+
+      logger.info('Bluesky login successful', {
+        username,
+        did: response.data.did,
+        handle: response.data.handle
+      });
 
       this.session = {
         did: response.data.did,
@@ -390,7 +400,13 @@ class BskyService {
 
       return true;
     } catch (error) {
-      logger.error('Failed to create Bluesky session', { error: error.message });
+      logger.error('Failed to create Bluesky session', {
+        error: error.message,
+        errorCode: error.code || 'no code',
+        errorStatus: error.status || 'no status',
+        errorStack: error.stack,
+        username: process.env.BLUESKY_USERNAME
+      });
       return false;
     }
   }
@@ -486,7 +502,11 @@ class BskyService {
       });
 
       if (!response.success) {
-        logger.error('Session refresh failed');
+        logger.error('Session refresh failed', {
+          responseData: response.data || 'no data',
+          responseHeaders: response.headers || 'no headers',
+          attempt: this.refreshAttempts
+        });
         return false;
       }
 
@@ -509,6 +529,9 @@ class BskyService {
     } catch (error) {
       logger.error('Failed to refresh Bluesky session', {
         error: error.message,
+        errorCode: error.code || 'no code',
+        errorStatus: error.status || 'no status',
+        errorStack: error.stack,
         attempt: this.refreshAttempts
       });
       return false;
