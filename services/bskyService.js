@@ -369,9 +369,19 @@ class BskyService {
       const response = await this.agent.login({ identifier: username, password });
 
       if (!response.success) {
-        logger.error('Bluesky login failed', { username });
+        logger.error('Bluesky login failed', {
+          username,
+          responseData: response.data || 'no data',
+          responseHeaders: response.headers || 'no headers'
+        });
         return false;
       }
+
+      logger.info('Bluesky login successful', {
+        username,
+        did: response.data.did,
+        handle: response.data.handle
+      });
 
       this.session = {
         did: response.data.did,
@@ -390,7 +400,13 @@ class BskyService {
 
       return true;
     } catch (error) {
-      logger.error('Failed to create Bluesky session', { error: error.message });
+      logger.error('Failed to create Bluesky session', {
+        error: error.message,
+        errorCode: error.code || 'no code',
+        errorStatus: error.status || 'no status',
+        errorStack: error.stack,
+        username: process.env.BLUESKY_USERNAME
+      });
       return false;
     }
   }
@@ -486,7 +502,11 @@ class BskyService {
       });
 
       if (!response.success) {
-        logger.error('Session refresh failed');
+        logger.error('Session refresh failed', {
+          responseData: response.data || 'no data',
+          responseHeaders: response.headers || 'no headers',
+          attempt: this.refreshAttempts
+        });
         return false;
       }
 
@@ -509,6 +529,9 @@ class BskyService {
     } catch (error) {
       logger.error('Failed to refresh Bluesky session', {
         error: error.message,
+        errorCode: error.code || 'no code',
+        errorStatus: error.status || 'no status',
+        errorStack: error.stack,
         attempt: this.refreshAttempts
       });
       return false;
@@ -853,10 +876,109 @@ class BskyService {
   }
 
   /**
+   * Create external link embed with thumbnail
+   *
+   * @param {string} url - External URL to embed
+   * @param {Object} options - Embed options (title, description, thumbnailUrl)
+   * @returns {Promise<Object>} Embed object for post
+   */
+  async createExternalEmbed(url, options = {}) {
+    await this.ensureInitialized();
+    await this.rateLimiter.checkLimit();
+
+    try {
+      const { title, description, thumbnailUrl } = options;
+
+      if (!url) {
+        throw new Error('URL required for external embed');
+      }
+
+      logger.info('Creating external embed', { url, title, hasThumbnail: !!thumbnailUrl });
+
+      // Download thumbnail image if provided
+      let thumbBlob = null;
+      if (thumbnailUrl) {
+        try {
+          logger.info('Downloading thumbnail', { thumbnailUrl });
+
+          const thumbResponse = await fetch(thumbnailUrl, {
+            timeout: 15000,
+            headers: {
+              'User-Agent': 'Chantilly-ADK/1.0'
+            }
+          });
+
+          if (!thumbResponse.ok) {
+            throw new Error(`Thumbnail download failed: ${thumbResponse.status}`);
+          }
+
+          // Convert to blob
+          const imageBuffer = await thumbResponse.arrayBuffer();
+          const imageBlob = new Blob([imageBuffer], {
+            type: thumbResponse.headers.get('content-type') || 'image/jpeg'
+          });
+
+          logger.info('Uploading thumbnail to Bluesky', {
+            size: imageBlob.size,
+            type: imageBlob.type
+          });
+
+          // Upload blob to Bluesky
+          const uploadResult = await this.agent.uploadBlob(imageBlob, {
+            encoding: imageBlob.type
+          });
+
+          thumbBlob = uploadResult.data.blob;
+
+          logger.info('Thumbnail uploaded successfully', {
+            blobRef: thumbBlob.ref.toString()
+          });
+        } catch (error) {
+          logger.warn('Failed to upload thumbnail, embed will have no image', {
+            error: error.message,
+            thumbnailUrl
+          });
+          // Continue without thumbnail
+        }
+      }
+
+      // Create embed object
+      const embed = {
+        $type: 'app.bsky.embed.external',
+        external: {
+          uri: url,
+          title: title || url,
+          description: description || ''
+        }
+      };
+
+      // Add thumbnail if available
+      if (thumbBlob) {
+        embed.external.thumb = thumbBlob;
+      }
+
+      logger.info('External embed created', {
+        hasThumb: !!thumbBlob,
+        titleLength: embed.external.title.length,
+        descLength: embed.external.description.length
+      });
+
+      return embed;
+    } catch (error) {
+      logger.error('Failed to create external embed', {
+        error: error.message,
+        url,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Create a post
    *
    * @param {string} text - Post text content
-   * @param {Object} options - Additional options (langs, createdAt, etc.)
+   * @param {Object} options - Additional options (langs, createdAt, embed, facets, etc.)
    * @returns {Promise<Object>} Post URI and CID
    */
   async createPost(text, options = {}) {
@@ -865,10 +987,14 @@ class BskyService {
 
     try {
       if (!text || text.length > 300) {
-        throw new Error('Post text must be 1-300 characters');
+        const errorMsg = text
+          ? `Post text exceeds Bluesky's 300 character limit (${text.length} characters)`
+          : 'Post text cannot be empty';
+        logger.error('Post validation failed', { textLength: text?.length || 0, limit: 300 });
+        throw new Error(errorMsg);
       }
 
-      logger.info('Creating Bluesky post', { textLength: text.length });
+      logger.info('Creating Bluesky post', { textLength: text.length, limit: 300, remaining: 300 - text.length });
 
       const postData = {
         text,
@@ -881,12 +1007,23 @@ class BskyService {
         postData.facets = options.facets;
       }
 
+      // Add embed if provided (for rich preview cards with thumbnails)
+      if (options.embed) {
+        postData.embed = options.embed;
+        logger.info('Post includes embed', {
+          embedType: options.embed.$type,
+          hasThumb: !!options.embed.external?.thumb
+        });
+      }
+
       logger.info('Calling BskyAgent.post() with data', {
         textLength: postData.text.length,
         textPreview: postData.text.substring(0, 100),
         createdAt: postData.createdAt,
         langs: postData.langs,
-        facetsCount: postData.facets?.length || 0
+        facetsCount: postData.facets?.length || 0,
+        hasEmbed: !!postData.embed,
+        embedType: postData.embed?.$type || null
       });
 
       const response = await this.agent.post(postData);

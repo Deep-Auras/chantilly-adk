@@ -40,7 +40,7 @@ class BskyYouTubePost extends BaseTool {
         },
         maxLength: {
           type: 'number',
-          description: 'Maximum post character length (default: 280, max: 300)'
+          description: 'Maximum post character length (default: 300, Bluesky limit)'
         },
         includeFact: {
           type: 'boolean',
@@ -66,7 +66,7 @@ class BskyYouTubePost extends BaseTool {
     const {
       youtubeUrl,
       personaIds = null,
-      maxLength = 280,
+      maxLength = 300,
       includeFact = true,
       tone = 'engaging'
     } = args;
@@ -123,37 +123,35 @@ class BskyYouTubePost extends BaseTool {
         return '❌ Failed to generate post text';
       }
 
-      // Step 4: Add YouTube link with facets for clickability
-      const finalPost = `${postText}\n\n🎥 ${youtubeUrl}`;
+      // Step 4: Use embed card instead of URL in text (more space for content)
+      // With rich embed, we don't need to include URL in text - it's shown in the preview card
+      const finalPost = postText;
 
-      // Calculate byte position of URL for facets (Bluesky uses UTF-8 byte positions)
-      const textBeforeUrl = `${postText}\n\n🎥 `;
-      const byteEncoder = new TextEncoder();
-      const byteStart = byteEncoder.encode(textBeforeUrl).length;
-      const byteEnd = byteEncoder.encode(finalPost).length;
+      // CRITICAL: Validate total length does not exceed Bluesky's 300 character limit
+      if (finalPost.length > 300) {
+        this.log('warn', 'Post text exceeds 300 chars, truncating', {
+          originalLength: finalPost.length
+        });
 
-      // Create facet for clickable link
-      const facets = [{
-        index: {
-          byteStart,
-          byteEnd
-        },
-        features: [{
-          $type: 'app.bsky.richtext.facet#link',
-          uri: youtubeUrl
-        }]
-      }];
+        // Truncate at sentence boundary
+        const truncatedText = this.truncateAtSentence(postText, 300);
 
-      this.log('info', 'Post generated with facets', {
-        length: finalPost.length,
-        facets: facets.length,
-        urlByteRange: `${byteStart}-${byteEnd}`
+        this.log('info', 'Post truncated to fit limit', {
+          newLength: truncatedText.length
+        });
+
+        return `❌ Generated post exceeds Bluesky's 300 character limit (${finalPost.length} chars). Please try with shorter content or disable includeFact.`;
+      }
+
+      this.log('info', 'Post generated with rich embed', {
+        textLength: finalPost.length,
+        withinLimit: finalPost.length <= 300,
+        willHaveEmbed: true
       });
 
-      // Step 5: Post to Bluesky (ALWAYS - no draft mode)
+      // Step 5: Post to Bluesky with rich embed (ALWAYS - no draft mode)
       return await this.postToBsky({
         text: finalPost,
-        facets,
         videoId,
         personaIds,
         videoAnalysis,
@@ -320,8 +318,8 @@ ${includeFact && videoAnalysis.surprisingFact ? `- Surprising Fact: ${videoAnaly
 
 ${personaContext}
 
-**Requirements:**
-1. Maximum ${maxLength} characters (Bluesky limit is 300)
+**CRITICAL Requirements:**
+1. Maximum ${maxLength} characters (STRICT LIMIT - Bluesky limit is 300, YouTube link will show in rich preview card below text)
 2. Start with attention-grabbing hook relevant to ${personas.length > 0 ? 'persona interests' : 'video topic'}
 3. Include 1-2 key insights from the video
 ${includeFact ? '4. Add the surprising fact if it fits naturally' : ''}
@@ -331,7 +329,9 @@ ${includeFact ? '4. Add the surprising fact if it fits naturally' : ''}
 8. Make it conversational and authentic, not salesy
 9. Create urgency or curiosity to drive video views
 
-DO NOT include the YouTube link (will be added separately).
+DO NOT include the YouTube link in text - it will appear as a rich preview card with thumbnail below the post.
+
+IMPORTANT: Stay UNDER ${maxLength} characters. Use the full character allowance for engaging content.
 
 Format: Plain text only, no markdown. Natural line breaks for readability.`;
 
@@ -363,11 +363,9 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
       postText = postText.replace(/\*\*/g, '');
       postText = postText.replace(/\*/g, '');
 
-      // Ensure within character limit (leaving room for URL)
-      // "\n\n🎥 " (4 chars) + full YouTube URL (up to 43 chars) = 47 chars total
-      const urlSpace = 50; // Safety margin for full-length YouTube URLs
-      if (postText.length > (maxLength - urlSpace)) {
-        postText = this.truncateAtSentence(postText, maxLength - urlSpace);
+      // Ensure within character limit (no URL in text - it's in embed card)
+      if (postText.length > maxLength) {
+        postText = this.truncateAtSentence(postText, maxLength);
       }
 
       this.log('info', 'Post text generated successfully', { length: postText.length });
@@ -463,24 +461,78 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
   }
 
   /**
-   * Post to Bluesky
+   * Get YouTube video metadata using oEmbed API
+   * @param {string} videoId - YouTube video ID
+   * @returns {Promise<Object>} Video metadata (title, author, thumbnail)
    */
-  async postToBsky({ text, facets, videoId, personaIds, videoAnalysis, bsky }) {
+  async getYouTubeMetadata(videoId) {
     try {
-      this.log('info', 'Posting to Bluesky', { textLength: text.length, facetsCount: facets?.length || 0 });
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+
+      const response = await fetch(oembedUrl, {
+        timeout: 10000,
+        headers: {
+          'User-Agent': 'Chantilly-ADK/1.0'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`YouTube oEmbed API returned ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      return {
+        title: data.title || 'YouTube Video',
+        author: data.author_name || 'YouTube',
+        thumbnailUrl: data.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+      };
+    } catch (error) {
+      this.log('warn', 'Failed to fetch YouTube metadata, using defaults', { error: error.message });
+
+      // Fallback to default thumbnail URL
+      return {
+        title: 'YouTube Video',
+        author: 'YouTube',
+        thumbnailUrl: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+      };
+    }
+  }
+
+  /**
+   * Post to Bluesky with rich embed preview
+   */
+  async postToBsky({ text, videoId, personaIds, videoAnalysis, bsky }) {
+    try {
+      this.log('info', 'Posting to Bluesky with rich embed', { textLength: text.length });
+
+      // Get YouTube metadata for rich embed
+      const metadata = await this.getYouTubeMetadata(videoId);
+      const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
+
+      // Create rich embed with thumbnail and metadata
+      const embed = await bsky.createExternalEmbed(youtubeUrl, {
+        title: metadata.title,
+        description: videoAnalysis.topic || 'Watch this video on YouTube',
+        thumbnailUrl: metadata.thumbnailUrl
+      });
 
       const result = await bsky.createPost(text, {
-        facets: facets || [], // Pass facets for clickable links
+        embed: embed, // Rich preview card with YouTube thumbnail and metadata
         youtubeVideoId: videoId,
         targetPersonas: personaIds || []
       });
 
       this.log('info', 'Post created successfully', { uri: result.uri });
 
-      return `✅ **Posted to Bluesky!**
+      return `✅ **Posted to Bluesky with Rich Preview!**
 
 📱 **Post Content:**
 ${text}
+
+🎬 **YouTube Video:**
+- Title: ${metadata.title}
+- ${youtubeUrl}
 
 🔗 **View Post:** ${result.url}
 
@@ -489,7 +541,8 @@ ${text}
 - Insights: ${videoAnalysis.insights.join('; ')}
 ${videoAnalysis.surprisingFact ? `- Fun Fact Used: ${videoAnalysis.surprisingFact}` : ''}
 
-💡 **Track engagement at:** ${result.url}`;
+💡 **The post includes a clickable preview card with thumbnail!**
+Track engagement at: ${result.url}`;
     } catch (error) {
       this.log('error', 'Failed to post to Bluesky', { error: error.message });
       return `❌ Failed to post: ${error.message}\n\n**Draft Post:**\n${text}`;
