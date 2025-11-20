@@ -202,57 +202,71 @@ class GoogleChatService {
         user: user
       };
 
-      // Check if this might trigger a long-running tool (>60s timeout)
-      const hasYouTubeUrl = /(?:youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/i.test(message.text);
-      const mentionsBluesky = /bluesky|bsky/i.test(message.text);
-      const isFeedAnalysis = /analyz|prospect|feed/i.test(message.text);
-      const isPersonaFollow = /follow|discover|find\s+(people|profiles|users)|persona.*match/i.test(message.text);
+      // PHASE 16.2: AUTOMATIC TIMEOUT DETECTION
+      // Google Chat has a 60-second hard timeout. Instead of manually detecting patterns,
+      // we start a timer and automatically switch to async mode if processing takes >50s.
 
-      // Pattern detection for long-running Bluesky tools:
-      // 1. BskyYouTubePost: YouTube URL + Bluesky mention (15min timeout)
-      // 2. BskyFeedAnalyzer: Feed analysis + Bluesky mention (15min timeout)
-      // 3. BskyPersonaFollow: Persona following + Bluesky mention (15min timeout)
-      const isLongRunningRequest = mentionsBluesky && (hasYouTubeUrl || isFeedAnalysis || isPersonaFollow);
+      const WEBHOOK_TIMEOUT_MS = 50000; // 50s safety margin (60s hard limit)
+      let timeoutReached = false;
+      let responsePromiseResolver = null;
+      let responsePromiseRejector = null;
 
-      if (isLongRunningRequest) {
-        // ASYNC MODE: Return immediate acknowledgment, process in background
-        logger.info('Long-running Bluesky tool detected, using async response', {
-          hasYouTubeUrl,
-          isFeedAnalysis,
-          isPersonaFollow,
-          mentionsBluesky
-        });
+      // Create a promise that resolves with the acknowledgment message if timeout is reached
+      const timeoutPromise = new Promise((resolve, reject) => {
+        responsePromiseResolver = resolve;
+        responsePromiseRejector = reject;
 
-        // Process asynchronously and send result via Chat API
-        this.processMessageAsync(messageData, eventData, conversationId)
-          .catch(error => {
-            logger.error('Async message processing failed', { error: error.message });
-          });
+        setTimeout(() => {
+          if (!timeoutReached) {
+            timeoutReached = true;
+            logger.warn('Google Chat webhook timeout approaching, switching to async mode', {
+              messageText: message.text.substring(0, 100),
+              elapsedMs: WEBHOOK_TIMEOUT_MS
+            });
 
-        // Return immediate acknowledgment with specific message
-        let acknowledgeMessage;
-        if (hasYouTubeUrl) {
-          acknowledgeMessage = '⏳ Processing your YouTube video for Bluesky... This may take up to 2 minutes. I\'ll send the result shortly.';
-        } else if (isPersonaFollow) {
-          acknowledgeMessage = '⏳ Finding and evaluating Bluesky profiles matching your personas... This may take 1-2 minutes. I\'ll send the result shortly.';
-        } else {
-          acknowledgeMessage = '⏳ Analyzing your Bluesky feed... This may take 1-2 minutes. I\'ll send the result shortly.';
+            // Start async processing
+            this.processMessageAsync(messageData, eventData, conversationId)
+              .catch(error => {
+                logger.error('Async message processing failed after timeout', { error: error.message });
+              });
+
+            // Resolve with acknowledgment
+            resolve(this.createCardResponse(
+              '⏳ Your request is taking longer than expected. Processing in the background... I\'ll send the result shortly.'
+            ));
+          }
+        }, WEBHOOK_TIMEOUT_MS);
+      });
+
+      // Start processing
+      const processingPromise = (async () => {
+        try {
+          const gemini = getGeminiService();
+          const result = await gemini.processMessage(messageData, eventData);
+
+          // If timeout hasn't been reached, return the result normally
+          if (!timeoutReached) {
+            const responseText = result?.reply || 'Message processed successfully.';
+            await this.cacheMessage(conversationId, user, message.text, responseText);
+            responsePromiseResolver(this.createCardResponse(responseText));
+            return;
+          }
+
+          // If timeout WAS reached, the response was already sent.
+          // The async handler will send the final result via Chat API.
+          logger.info('Processing completed after timeout, result will be sent via Chat API');
+        } catch (error) {
+          if (!timeoutReached) {
+            responsePromiseRejector(error);
+          } else {
+            // Error occurred after timeout - async handler will deal with it
+            throw error;
+          }
         }
+      })();
 
-        return this.createCardResponse(acknowledgeMessage);
-      }
-
-      // SYNC MODE: Standard flow for quick operations (<45s)
-      const result = await gemini.processMessage(messageData, eventData);
-
-      // result may be null if tool handled messaging, or an object with reply
-      const responseText = result?.reply || 'Message processed successfully.';
-
-      // Cache conversation history (use sanitized IDs)
-      await this.cacheMessage(conversationId, user, message.text, responseText);
-
-      // Return card UI response
-      return this.createCardResponse(responseText);
+      // Race between timeout and processing completion
+      return await Promise.race([timeoutPromise, processingPromise]);
     } catch (error) {
       logger.error('Error handling Google Chat message', { error: error.message, stack: error.stack });
       return {
