@@ -285,10 +285,10 @@ class GoogleChatService {
       };
 
       // PHASE 16.2: AUTOMATIC TIMEOUT DETECTION
-      // Google Chat has a 60-second hard timeout. We use Promise.race to automatically
-      // switch to async mode if processing takes >50s, WITHOUT duplicate processing.
+      // Google Chat has a 30-second observed timeout (not 60s as documented).
+      // We use Promise.race to automatically switch to async mode if processing takes >10s.
 
-      const WEBHOOK_TIMEOUT_MS = 50000; // 50s safety margin (60s hard limit)
+      const WEBHOOK_TIMEOUT_MS = 10000; // 10s threshold (30s observed timeout, 20s safety margin)
       let timeoutReached = false;
       let timeoutId = null;
 
@@ -297,11 +297,11 @@ class GoogleChatService {
         messageId: messageId.substring(0, 100)
       });
 
-      // Timeout promise - resolves with acknowledgment after 50s
+      // Timeout promise - resolves with acknowledgment after 10s
       const timeoutPromise = new Promise(resolve => {
         timeoutId = setTimeout(() => {
           timeoutReached = true;
-          logger.warn('Google Chat webhook timeout approaching (50s), returning acknowledgment', {
+          logger.warn('Google Chat webhook timeout threshold reached (10s), returning acknowledgment', {
             messageText: message.text?.substring(0, 100),
             elapsedMs: WEBHOOK_TIMEOUT_MS
           });
