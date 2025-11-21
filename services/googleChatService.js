@@ -14,6 +14,13 @@ class GoogleChatService {
     this.db = getFirestore();
     this.FieldValue = getFieldValue();
     this.initialized = false;
+    this.processingMessages = new Map(); // Track in-flight message processing to prevent duplicates
+
+    // CRITICAL: Periodic cleanup to prevent memory leaks
+    // Remove stale entries older than 5 minutes (should never happen, but safety measure)
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleProcessing();
+    }, 60000); // Run every 60 seconds
   }
 
   async initialize() {
@@ -35,6 +42,49 @@ class GoogleChatService {
     } catch (error) {
       logger.error('Failed to initialize Google Chat service', { error: error.message });
       throw error;
+    }
+  }
+
+  /**
+   * PHASE 16.3: Cleanup stale processing entries
+   * Removes entries older than 5 minutes to prevent memory leaks
+   */
+  cleanupStaleProcessing() {
+    const now = Date.now();
+    const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+    let cleanedCount = 0;
+
+    for (const [messageId, data] of this.processingMessages.entries()) {
+      const age = now - data.startTime;
+      if (age > MAX_AGE_MS) {
+        this.processingMessages.delete(messageId);
+        cleanedCount++;
+        logger.warn('Removed stale processing entry', {
+          messageId,
+          ageMinutes: (age / 60000).toFixed(1),
+          spaceName: data.spaceName,
+          userName: data.userName
+        });
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.info('Cleanup completed', {
+        removedCount: cleanedCount,
+        remainingCount: this.processingMessages.size
+      });
+    }
+  }
+
+  /**
+   * PHASE 16.3: Cleanup resources on shutdown
+   * Call this when the service is shutting down to prevent memory leaks
+   */
+  destroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+      logger.info('Google Chat service cleanup interval cleared');
     }
   }
 
@@ -172,6 +222,36 @@ class GoogleChatService {
     const { message, space, user } = event;
 
     try {
+      // PHASE 16.3: REQUEST DEDUPLICATION
+      // Google Chat may retry webhooks if response is slow, causing duplicate processing.
+      // Use message.name as unique ID to track in-flight requests.
+
+      const messageId = message.name || `${space.name}-${user.name}-${Date.now()}`;
+
+      // Check if this message is already being processed
+      if (this.processingMessages.has(messageId)) {
+        logger.warn('Duplicate webhook detected, ignoring', {
+          messageId,
+          spaceName: space.name,
+          userName: user.displayName
+        });
+        return this.createCardResponse('⏳ Processing your previous request...');
+      }
+
+      // Mark message as being processed
+      this.processingMessages.set(messageId, {
+        startTime: Date.now(),
+        spaceName: space.name,
+        userName: user.displayName
+      });
+
+      logger.info('Processing Google Chat message', {
+        messageId,
+        spaceName: space.name,
+        userName: user.displayName,
+        inFlightCount: this.processingMessages.size
+      });
+
       // Sanitize IDs for Firestore (remove slashes)
       const conversationId = this.sanitizeId(space.name);
       const userId = this.sanitizeId(user.name);
@@ -208,10 +288,11 @@ class GoogleChatService {
 
       const WEBHOOK_TIMEOUT_MS = 50000; // 50s safety margin (60s hard limit)
       let timeoutReached = false;
+      let timeoutId = null;
 
       // Timeout promise - resolves with acknowledgment after 50s
       const timeoutPromise = new Promise(resolve => {
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
           timeoutReached = true;
           logger.warn('Google Chat webhook timeout approaching, returning acknowledgment', {
             messageText: message.text.substring(0, 100),
@@ -250,48 +331,89 @@ class GoogleChatService {
       // Race between timeout and processing completion
       const raceResult = await Promise.race([timeoutPromise, processingPromise]);
 
+      // CRITICAL: Clear the timeout timer to prevent it from firing
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
       if (raceResult.type === 'timeout') {
         // Timeout won the race - return acknowledgment immediately
         // Processing continues in the background
         processingPromise.then(async result => {
-          if (result.type === 'completed') {
-            // Send actual result via Chat API
-            logger.info('Processing completed after timeout, sending result via Chat API');
-            await this.cacheMessage(conversationId, user, message.text, result.responseText);
-            await this.sendMessage(eventData.space.name, result.responseText, result.threadKey);
-          } else if (result.type === 'error') {
-            // Send error via Chat API
-            logger.error('Error after timeout, sending error via Chat API', {
-              error: result.error.message
-            });
-            try {
-              await this.sendMessage(
-                eventData.space.name,
-                `❌ Sorry, I encountered an error: ${result.error.message}`,
-                result.threadKey
-              );
-            } catch (sendError) {
-              logger.error('Failed to send error via Chat API', { error: sendError.message });
+          try {
+            if (result.type === 'completed') {
+              // Send actual result via Chat API
+              logger.info('Processing completed after timeout, sending result via Chat API');
+              await this.cacheMessage(conversationId, user, message.text, result.responseText);
+              await this.sendMessage(eventData.space.name, result.responseText, result.threadKey);
+            } else if (result.type === 'error') {
+              // Send error via Chat API
+              logger.error('Error after timeout, sending error via Chat API', {
+                error: result.error.message
+              });
+              try {
+                await this.sendMessage(
+                  eventData.space.name,
+                  `❌ Sorry, I encountered an error: ${result.error.message}`,
+                  result.threadKey
+                );
+              } catch (sendError) {
+                logger.error('Failed to send error via Chat API', { error: sendError.message });
+              }
             }
+          } finally {
+            // CRITICAL: Remove from processing Map after background completion
+            this.processingMessages.delete(messageId);
+            logger.debug('Removed message from processing Map (background)', {
+              messageId,
+              remainingCount: this.processingMessages.size
+            });
           }
         }).catch(error => {
           logger.error('Unhandled error in background processing', { error: error.message });
+          // Cleanup even on error
+          this.processingMessages.delete(messageId);
         });
 
         return raceResult.response; // Return acknowledgment
       } else if (raceResult.type === 'completed') {
         // Processing won the race - return normal response
         await this.cacheMessage(conversationId, user, message.text, raceResult.responseText);
+
+        // CRITICAL: Remove from processing Map after successful completion
+        this.processingMessages.delete(messageId);
+        logger.debug('Removed message from processing Map (success)', {
+          messageId,
+          remainingCount: this.processingMessages.size
+        });
+
         return this.createCardResponse(raceResult.responseText);
       } else if (raceResult.type === 'error') {
         // Error occurred before timeout
         logger.error('Error during processing', { error: raceResult.error.message });
+
+        // CRITICAL: Remove from processing Map after error
+        this.processingMessages.delete(messageId);
+        logger.debug('Removed message from processing Map (error)', {
+          messageId,
+          remainingCount: this.processingMessages.size
+        });
+
         return {
           text: '❌ Sorry, I encountered an error processing your message.'
         };
       }
     } catch (error) {
       logger.error('Error handling Google Chat message', { error: error.message, stack: error.stack });
+
+      // CRITICAL: Remove from processing Map on exception
+      const messageId = message?.name || `${space?.name}-${user?.name}-${Date.now()}`;
+      this.processingMessages.delete(messageId);
+      logger.debug('Removed message from processing Map (exception)', {
+        messageId,
+        remainingCount: this.processingMessages.size
+      });
+
       return {
         text: '❌ Sorry, I encountered an error processing your message.'
       };

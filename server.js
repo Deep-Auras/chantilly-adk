@@ -426,7 +426,22 @@ process.on('SIGTERM', async () => {
       logger.error('TaskOrchestrator shutdown failed', { error: error.message });
     }
 
-    // 4. Cleanup Asana service if initialized (polling intervals)
+    // 4. Cleanup Google Chat service if initialized (PHASE 16.3: deduplication cleanup)
+    if (ENABLE_GOOGLE_CHAT) {
+      try {
+        const { getGoogleChatService } = require('./services/googleChatService');
+        const chatService = getGoogleChatService();
+        if (chatService && chatService.destroy) {
+          chatService.destroy();
+          logger.info('Google Chat service cleanup completed');
+        }
+      } catch (error) {
+        // Google Chat service might not be initialized, that's okay
+        logger.debug('Google Chat service cleanup skipped', { reason: error.message });
+      }
+    }
+
+    // 5. Cleanup Asana service if initialized (polling intervals)
     try {
       const { getAsanaService } = require('./services/asanaService');
       const asanaService = getAsanaService();
