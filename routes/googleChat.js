@@ -59,6 +59,22 @@ router.post('/webhook/google-chat', async (req, res) => {
           const response = await chatService.handleSlashCommand(transformedEvent);
           return res.json(response);
         } else {
+          // PHASE 16: Detect task feedback patterns and route to feedback handler
+          const messageText = transformedEvent.message.text?.toLowerCase() || '';
+          const hasTaskReference = messageText.includes('task');
+          const hasFeedbackKeywords = /change|update|fix|add|didn't|missing|wrong|incorrect|modify|remove|needs?|should|require/i.test(messageText);
+
+          if (hasTaskReference && hasFeedbackKeywords) {
+            logger.info('Task feedback detected, routing to handleTaskFeedback', {
+              hasTaskReference,
+              hasFeedbackKeywords,
+              messagePreview: messageText.substring(0, 100)
+            });
+            const response = await chatService.handleTaskFeedback(transformedEvent);
+            return res.json(response);
+          }
+
+          // Default message handling
           const response = await chatService.handleMessage(transformedEvent);
           return res.json(response);
         }

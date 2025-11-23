@@ -124,9 +124,17 @@ class BskyPersonaFollow extends BaseTool {
     const allProfiles = new Map(); // Use Map to deduplicate by DID
     let profilesFromSuggested = 0;
     let profilesFromSearch = 0;
+    const performanceMetrics = {
+      startTime: Date.now(),
+      suggestedFetchTime: 0,
+      searchFetchTime: 0,
+      aiScoringTime: 0,
+      totalTime: 0
+    };
 
     // 1. Get suggested follows from Bluesky's algorithm (real, active accounts)
-    this.log('info', 'Fetching Bluesky suggested follows');
+    this.log('info', 'DISCOVERY SOURCE 1: Fetching Bluesky suggested follows');
+    const suggestedStartTime = Date.now();
 
     try {
       const suggestedProfiles = await bsky.getSuggestedFollows();
@@ -138,13 +146,23 @@ class BskyPersonaFollow extends BaseTool {
         }
       }
 
-      this.log('info', 'Suggested follows fetched', { count: profilesFromSuggested });
+      performanceMetrics.suggestedFetchTime = Date.now() - suggestedStartTime;
+
+      this.log('info', 'SOURCE 1 COMPLETE: Suggested follows fetched', {
+        count: profilesFromSuggested,
+        fetchTimeMs: performanceMetrics.suggestedFetchTime,
+        avgTimePerProfile: profilesFromSuggested > 0 ? Math.round(performanceMetrics.suggestedFetchTime / profilesFromSuggested) : 0
+      });
     } catch (error) {
-      this.log('error', 'Failed to fetch suggested follows', { error: error.message });
+      this.log('error', 'SOURCE 1 FAILED: Error fetching suggested follows', {
+        error: error.message,
+        stack: error.stack
+      });
     }
 
     // 2. Search for profiles using persona-based queries
-    this.log('info', 'Searching for profiles using persona keywords');
+    this.log('info', 'DISCOVERY SOURCE 2: Starting persona-based keyword search');
+    const searchStartTime = Date.now();
 
     const searchQueries = [];
     for (const persona of personas) {
@@ -152,35 +170,92 @@ class BskyPersonaFollow extends BaseTool {
       searchQueries.push(...queries.map(q => ({ query: q, persona })));
     }
 
-    this.log('info', 'Generated search queries', { count: searchQueries.length });
+    this.log('info', 'Generated search queries', {
+      totalQueries: searchQueries.length,
+      queriesPerPersona: Math.round(searchQueries.length / personas.length),
+      personas: personas.map(p => p.name)
+    });
 
     // Search profiles (limit to avoid quota exhaustion)
     const maxSearches = Math.min(searchQueries.length, 10);
+    let searchesExecuted = 0;
+    let searchesSucceeded = 0;
+    let searchesFailed = 0;
+    let duplicatesSkipped = 0;
 
     for (let i = 0; i < maxSearches; i++) {
       const { query, persona } = searchQueries[i];
+      searchesExecuted++;
 
       try {
-        this.log('info', 'Searching profiles', { query, persona: persona.name });
+        this.log('info', 'Executing search query', {
+          queryNumber: i + 1,
+          totalQueries: maxSearches,
+          query,
+          persona: persona.name
+        });
 
+        const queryStartTime = Date.now();
         const profiles = await bsky.searchProfiles(query, 20);
+        const queryTime = Date.now() - queryStartTime;
+
+        let newProfilesFromThisQuery = 0;
+        let duplicatesFromThisQuery = 0;
 
         for (const profile of profiles) {
           // Add to collection if not already present (deduplicate by DID)
           if (!allProfiles.has(profile.did)) {
             allProfiles.set(profile.did, { ...profile, source: 'search' });
             profilesFromSearch++;
+            newProfilesFromThisQuery++;
+          } else {
+            duplicatesSkipped++;
+            duplicatesFromThisQuery++;
           }
         }
+
+        searchesSucceeded++;
+
+        this.log('info', 'Search query complete', {
+          query,
+          resultsReturned: profiles.length,
+          newProfiles: newProfilesFromThisQuery,
+          duplicates: duplicatesFromThisQuery,
+          queryTimeMs: queryTime
+        });
       } catch (error) {
-        this.log('warn', 'Profile search failed', { query, error: error.message });
+        searchesFailed++;
+        this.log('warn', 'Search query failed', {
+          query,
+          persona: persona.name,
+          error: error.message
+        });
       }
     }
 
-    this.log('info', 'Profile collection complete', {
+    performanceMetrics.searchFetchTime = Date.now() - searchStartTime;
+
+    this.log('info', 'SOURCE 2 COMPLETE: Keyword search finished', {
+      searchesExecuted,
+      searchesSucceeded,
+      searchesFailed,
+      successRate: `${Math.round((searchesSucceeded / searchesExecuted) * 100)}%`,
+      profilesFound: profilesFromSearch,
+      duplicatesSkipped,
+      avgProfilesPerSearch: Math.round(profilesFromSearch / searchesSucceeded),
+      totalSearchTimeMs: performanceMetrics.searchFetchTime,
+      avgTimePerSearch: Math.round(performanceMetrics.searchFetchTime / searchesExecuted)
+    });
+
+    this.log('info', 'HYBRID DISCOVERY SUMMARY', {
       totalProfiles: allProfiles.size,
       fromSuggested: profilesFromSuggested,
-      fromSearch: profilesFromSearch
+      fromSearch: profilesFromSearch,
+      sourceBreakdown: {
+        suggested: `${Math.round((profilesFromSuggested / allProfiles.size) * 100)}%`,
+        search: `${Math.round((profilesFromSearch / allProfiles.size) * 100)}%`
+      },
+      totalFetchTimeMs: performanceMetrics.suggestedFetchTime + performanceMetrics.searchFetchTime
     });
 
     // 3. Filter already-followed profiles before AI scoring
@@ -205,25 +280,41 @@ class BskyPersonaFollow extends BaseTool {
     const maxCandidates = 40;
     const profilesToScore = candidateProfiles.slice(0, maxCandidates);
 
-    this.log('info', 'Starting batch AI scoring', {
+    // Count profiles by source going into AI scoring
+    const profilesBySourcePreAI = {
+      suggested: profilesToScore.filter(p => p.source === 'suggested').length,
+      search: profilesToScore.filter(p => p.source === 'search').length
+    };
+
+    this.log('info', 'AI SCORING: Starting batch evaluation', {
       profilesCount: profilesToScore.length,
-      personasCount: personas.length
+      personasCount: personas.length,
+      bySource: profilesBySourcePreAI,
+      candidatesPerPersona: Math.round(profilesToScore.length / personas.length)
     });
 
+    const aiScoringStartTime = Date.now();
     const scoringResults = await this.batchScoreProfiles({
       profiles: profilesToScore,
       personas,
       gemini
     });
+    performanceMetrics.aiScoringTime = Date.now() - aiScoringStartTime;
 
-    this.log('info', 'Batch AI scoring complete', {
-      resultsCount: scoringResults.length
+    this.log('info', 'AI SCORING COMPLETE', {
+      resultsCount: scoringResults.length,
+      aiScoringTimeMs: performanceMetrics.aiScoringTime,
+      avgTimePerProfile: Math.round(performanceMetrics.aiScoringTime / scoringResults.length)
     });
 
     // 5. Process scoring results
     const allMatches = [];
     let profilesBelowThreshold = 0;
     const allScores = [];
+    const scoresBySource = {
+      suggested: [],
+      search: []
+    };
 
     for (const result of scoringResults) {
       allScores.push({
@@ -232,6 +323,9 @@ class BskyPersonaFollow extends BaseTool {
         source: result.profile.source,
         reason: result.reason
       });
+
+      // Track scores by source for analysis
+      scoresBySource[result.profile.source].push(result.bestScore);
 
       if (result.bestScore >= matchThreshold) {
         allMatches.push({
@@ -242,11 +336,12 @@ class BskyPersonaFollow extends BaseTool {
           source: result.profile.source
         });
 
-        this.log('info', 'Profile matched', {
+        this.log('info', 'HIGH MATCH FOUND', {
           handle: result.profile.handle,
           persona: result.bestPersona.name,
           score: result.bestScore,
-          source: result.profile.source
+          source: result.profile.source,
+          reason: result.reason.substring(0, 100)
         });
       } else {
         profilesBelowThreshold++;
@@ -255,14 +350,61 @@ class BskyPersonaFollow extends BaseTool {
 
     const profilesScanned = scoringResults.length;
 
-    // Log summary statistics
-    this.log('info', 'Profile scanning complete', {
+    // Calculate source-specific statistics
+    const avgScoreBySource = {
+      suggested: scoresBySource.suggested.length > 0
+        ? Math.round(scoresBySource.suggested.reduce((a, b) => a + b, 0) / scoresBySource.suggested.length)
+        : 0,
+      search: scoresBySource.search.length > 0
+        ? Math.round(scoresBySource.search.reduce((a, b) => a + b, 0) / scoresBySource.search.length)
+        : 0
+    };
+
+    const matchesBySource = {
+      suggested: allMatches.filter(m => m.source === 'suggested').length,
+      search: allMatches.filter(m => m.source === 'search').length
+    };
+
+    const matchRateBySource = {
+      suggested: scoresBySource.suggested.length > 0
+        ? `${Math.round((matchesBySource.suggested / scoresBySource.suggested.length) * 100)}%`
+        : '0%',
+      search: scoresBySource.search.length > 0
+        ? `${Math.round((matchesBySource.search / scoresBySource.search.length) * 100)}%`
+        : '0%'
+    };
+
+    // Log comprehensive summary statistics
+    this.log('info', 'FILTERING COMPLETE: Threshold analysis', {
       profilesScanned,
       profilesSkippedAlreadyFollowed,
       profilesBelowThreshold,
       matchesFound: allMatches.length,
       matchThreshold,
-      topScores: allScores.sort((a, b) => b.score - a.score).slice(0, 5)
+      matchRate: `${Math.round((allMatches.length / profilesScanned) * 100)}%`
+    });
+
+    this.log('info', 'SOURCE PERFORMANCE ANALYSIS', {
+      avgScores: avgScoreBySource,
+      matchesBySource,
+      matchRateBySource,
+      profilesEvaluatedBySource: {
+        suggested: scoresBySource.suggested.length,
+        search: scoresBySource.search.length
+      },
+      winningSource: avgScoreBySource.suggested > avgScoreBySource.search ? 'suggested' : 'search',
+      scoreDifference: Math.abs(avgScoreBySource.suggested - avgScoreBySource.search)
+    });
+
+    this.log('info', 'TOP SCORING PROFILES', {
+      top5: allScores
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5)
+        .map(s => ({
+          handle: s.handle,
+          score: s.score,
+          source: s.source
+        }))
     });
 
     // Sort by match score (highest first)
@@ -279,8 +421,28 @@ class BskyPersonaFollow extends BaseTool {
     const followResults = [];
 
     if (dryRun) {
-      this.log('info', 'Dry-run mode: would follow', { count: toFollow.length });
+      const dryRunBySource = {
+        suggested: toFollow.filter(m => m.source === 'suggested').length,
+        search: toFollow.filter(m => m.source === 'search').length
+      };
+
+      this.log('info', 'DRY-RUN MODE: Would follow profiles', {
+        totalCount: toFollow.length,
+        bySource: dryRunBySource,
+        avgScore: Math.round(toFollow.reduce((sum, m) => sum + m.matchScore, 0) / toFollow.length)
+      });
     } else {
+      this.log('info', 'FOLLOW EXECUTION: Starting to follow profiles', {
+        count: toFollow.length
+      });
+
+      let followsSucceeded = 0;
+      let followsFailed = 0;
+      const followResultsBySource = {
+        suggested: { succeeded: 0, failed: 0 },
+        search: { succeeded: 0, failed: 0 }
+      };
+
       for (const match of toFollow) {
         try {
           const followUri = await bsky.followUser(match.profile.did);
@@ -303,17 +465,27 @@ class BskyPersonaFollow extends BaseTool {
             profile: match.profile,
             persona: match.persona.name,
             matchScore: match.matchScore,
-            followed: true
+            followed: true,
+            source: match.source
           });
 
-          this.log('info', 'Followed profile', {
+          followsSucceeded++;
+          followResultsBySource[match.source].succeeded++;
+
+          this.log('info', 'FOLLOW SUCCESS', {
             handle: match.profile.handle,
             persona: match.persona.name,
-            matchScore: match.matchScore
+            matchScore: match.matchScore,
+            source: match.source
           });
         } catch (error) {
-          this.log('warn', 'Failed to follow profile', {
+          followsFailed++;
+          followResultsBySource[match.source].failed++;
+
+          this.log('warn', 'FOLLOW FAILED', {
             handle: match.profile.handle,
+            persona: match.persona.name,
+            source: match.source,
             error: error.message
           });
 
@@ -322,11 +494,42 @@ class BskyPersonaFollow extends BaseTool {
             persona: match.persona.name,
             matchScore: match.matchScore,
             followed: false,
-            error: error.message
+            error: error.message,
+            source: match.source
           });
         }
       }
+
+      this.log('info', 'FOLLOW EXECUTION COMPLETE', {
+        totalAttempted: toFollow.length,
+        succeeded: followsSucceeded,
+        failed: followsFailed,
+        successRate: `${Math.round((followsSucceeded / toFollow.length) * 100)}%`,
+        resultsBySource: followResultsBySource
+      });
     }
+
+    // Final performance report
+    performanceMetrics.totalTime = Date.now() - performanceMetrics.startTime;
+
+    this.log('info', 'FINAL PERFORMANCE REPORT', {
+      totalExecutionTimeMs: performanceMetrics.totalTime,
+      breakdown: {
+        suggestedFetchMs: performanceMetrics.suggestedFetchTime,
+        searchFetchMs: performanceMetrics.searchFetchTime,
+        aiScoringMs: performanceMetrics.aiScoringTime,
+        otherMs: performanceMetrics.totalTime - (performanceMetrics.suggestedFetchTime + performanceMetrics.searchFetchTime + performanceMetrics.aiScoringTime)
+      },
+      timePercentages: {
+        suggested: `${Math.round((performanceMetrics.suggestedFetchTime / performanceMetrics.totalTime) * 100)}%`,
+        search: `${Math.round((performanceMetrics.searchFetchTime / performanceMetrics.totalTime) * 100)}%`,
+        aiScoring: `${Math.round((performanceMetrics.aiScoringTime / performanceMetrics.totalTime) * 100)}%`
+      },
+      efficiency: {
+        profilesPerSecond: Math.round((allProfiles.size / performanceMetrics.totalTime) * 1000),
+        aiProfilesPerSecond: Math.round((profilesToScore.length / performanceMetrics.aiScoringTime) * 1000)
+      }
+    });
 
     // Generate report
     return this.formatFollowReport({

@@ -14,6 +14,13 @@ class GoogleChatService {
     this.db = getFirestore();
     this.FieldValue = getFieldValue();
     this.initialized = false;
+    this.processingMessages = new Map(); // Track in-flight message processing to prevent duplicates
+
+    // CRITICAL: Periodic cleanup to prevent memory leaks
+    // Remove stale entries older than 5 minutes (should never happen, but safety measure)
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleProcessing();
+    }, 60000); // Run every 60 seconds
   }
 
   async initialize() {
@@ -35,6 +42,49 @@ class GoogleChatService {
     } catch (error) {
       logger.error('Failed to initialize Google Chat service', { error: error.message });
       throw error;
+    }
+  }
+
+  /**
+   * PHASE 16.3: Cleanup stale processing entries
+   * Removes entries older than 5 minutes to prevent memory leaks
+   */
+  cleanupStaleProcessing() {
+    const now = Date.now();
+    const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+    let cleanedCount = 0;
+
+    for (const [messageId, data] of this.processingMessages.entries()) {
+      const age = now - data.startTime;
+      if (age > MAX_AGE_MS) {
+        this.processingMessages.delete(messageId);
+        cleanedCount++;
+        logger.warn('Removed stale processing entry', {
+          messageId,
+          ageMinutes: (age / 60000).toFixed(1),
+          spaceName: data.spaceName,
+          userName: data.userName
+        });
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logger.info('Cleanup completed', {
+        removedCount: cleanedCount,
+        remainingCount: this.processingMessages.size
+      });
+    }
+  }
+
+  /**
+   * PHASE 16.3: Cleanup resources on shutdown
+   * Call this when the service is shutting down to prevent memory leaks
+   */
+  destroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+      logger.info('Google Chat service cleanup interval cleared');
     }
   }
 
@@ -171,7 +221,39 @@ class GoogleChatService {
   async handleMessage(event) {
     const { message, space, user } = event;
 
+    // PHASE 16.3: REQUEST DEDUPLICATION (CRITICAL - Must happen FIRST)
+    // Google Chat sends duplicate webhooks within 133ms, too fast for async Map checks.
+    // Use message.name (or generate stable ID) to detect duplicates.
+
+    const messageId = message.name || `${space.name}-${user.name}-${message.text?.substring(0, 50)}`;
+
+    // SYNCHRONOUS duplicate check (no await before this)
+    if (this.processingMessages.has(messageId)) {
+      logger.warn('Duplicate webhook detected, ignoring', {
+        messageId: messageId.substring(0, 100),
+        spaceName: space.name,
+        userName: user.displayName,
+        inFlightCount: this.processingMessages.size
+      });
+      return this.createCardResponse('⏳ Processing your previous request...');
+    }
+
+    // Mark IMMEDIATELY before any async operations
+    this.processingMessages.set(messageId, {
+      startTime: Date.now(),
+      spaceName: space.name,
+      userName: user.displayName
+    });
+
+    logger.info('Processing Google Chat message', {
+      messageId: messageId.substring(0, 100),
+      spaceName: space.name,
+      userName: user.displayName,
+      inFlightCount: this.processingMessages.size
+    });
+
     try {
+
       // Sanitize IDs for Firestore (remove slashes)
       const conversationId = this.sanitizeId(space.name);
       const userId = this.sanitizeId(user.name);
@@ -202,59 +284,165 @@ class GoogleChatService {
         user: user
       };
 
-      // Check if this might trigger a long-running tool (>60s timeout)
-      const hasYouTubeUrl = /(?:youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/i.test(message.text);
-      const mentionsBluesky = /bluesky|bsky/i.test(message.text);
-      const isFeedAnalysis = /analyz|prospect|feed/i.test(message.text);
-      const isPersonaFollow = /follow|discover|find\s+(people|profiles|users)|persona.*match/i.test(message.text);
+      // PHASE 16.2: AUTOMATIC TIMEOUT DETECTION
+      // Google Chat has a 30-second observed timeout (not 60s as documented).
+      // We use Promise.race to automatically switch to async mode if processing takes >10s.
 
-      // Pattern detection for long-running Bluesky tools:
-      // 1. BskyYouTubePost: YouTube URL + Bluesky mention (15min timeout)
-      // 2. BskyFeedAnalyzer: Feed analysis + Bluesky mention (15min timeout)
-      // 3. BskyPersonaFollow: Persona following + Bluesky mention (15min timeout)
-      const isLongRunningRequest = mentionsBluesky && (hasYouTubeUrl || isFeedAnalysis || isPersonaFollow);
+      const WEBHOOK_TIMEOUT_MS = 10000; // 10s threshold (30s observed timeout, 20s safety margin)
+      let timeoutReached = false;
+      let timeoutId = null;
 
-      if (isLongRunningRequest) {
-        // ASYNC MODE: Return immediate acknowledgment, process in background
-        logger.info('Long-running Bluesky tool detected, using async response', {
-          hasYouTubeUrl,
-          isFeedAnalysis,
-          isPersonaFollow,
-          mentionsBluesky
-        });
+      logger.info('Starting automatic timeout detection', {
+        timeoutMs: WEBHOOK_TIMEOUT_MS,
+        messageId: messageId.substring(0, 100)
+      });
 
-        // Process asynchronously and send result via Chat API
-        this.processMessageAsync(messageData, eventData, conversationId)
-          .catch(error => {
-            logger.error('Async message processing failed', { error: error.message });
+      // Timeout promise - resolves with acknowledgment after 10s
+      const timeoutPromise = new Promise(resolve => {
+        timeoutId = setTimeout(() => {
+          timeoutReached = true;
+          logger.warn('Google Chat webhook timeout threshold reached (10s), returning acknowledgment', {
+            messageText: message.text?.substring(0, 100),
+            elapsedMs: WEBHOOK_TIMEOUT_MS
           });
+          resolve({
+            type: 'timeout',
+            response: this.createCardResponse(
+              '⏳ Your request is taking longer than expected. Processing in the background... I\'ll send the result shortly.'
+            )
+          });
+        }, WEBHOOK_TIMEOUT_MS);
+      });
 
-        // Return immediate acknowledgment with specific message
-        let acknowledgeMessage;
-        if (hasYouTubeUrl) {
-          acknowledgeMessage = '⏳ Processing your YouTube video for Bluesky... This may take up to 2 minutes. I\'ll send the result shortly.';
-        } else if (isPersonaFollow) {
-          acknowledgeMessage = '⏳ Finding and evaluating Bluesky profiles matching your personas... This may take 1-2 minutes. I\'ll send the result shortly.';
-        } else {
-          acknowledgeMessage = '⏳ Analyzing your Bluesky feed... This may take 1-2 minutes. I\'ll send the result shortly.';
+      // Processing promise - returns result when processing completes
+      const processingPromise = (async () => {
+        try {
+          const gemini = getGeminiService();
+          const result = await gemini.processMessage(messageData, eventData);
+          const responseText = result?.reply || 'Message processed successfully.';
+
+          return {
+            type: 'completed',
+            responseText: responseText,
+            threadKey: eventData.message?.thread?.name || null
+          };
+        } catch (error) {
+          return {
+            type: 'error',
+            error: error,
+            threadKey: eventData.message?.thread?.name || null
+          };
         }
+      })();
 
-        return this.createCardResponse(acknowledgeMessage);
+      // Race between timeout and processing completion
+      const raceResult = await Promise.race([timeoutPromise, processingPromise]);
+
+      // CRITICAL: Clear the timeout timer to prevent it from firing
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        logger.info('Cleared timeout timer', {
+          raceWinner: raceResult.type,
+          messageId: messageId.substring(0, 100)
+        });
       }
 
-      // SYNC MODE: Standard flow for quick operations (<45s)
-      const result = await gemini.processMessage(messageData, eventData);
+      if (raceResult.type === 'timeout') {
+        // Timeout won the race - return acknowledgment immediately
+        // Processing continues in the background
+        logger.warn('TIMEOUT PATH: Returning acknowledgment, processing continues in background', {
+          elapsedMs: WEBHOOK_TIMEOUT_MS,
+          messageId: messageId.substring(0, 100)
+        });
 
-      // result may be null if tool handled messaging, or an object with reply
-      const responseText = result?.reply || 'Message processed successfully.';
+        processingPromise.then(async result => {
+          try {
+            if (result.type === 'completed') {
+              // Send actual result via Chat API
+              logger.info('BACKGROUND: Processing completed after timeout, sending result via Chat API', {
+                messageId: messageId.substring(0, 100)
+              });
+              await this.cacheMessage(conversationId, user, message.text, result.responseText);
+              await this.sendMessage(eventData.space.name, result.responseText, result.threadKey);
+            } else if (result.type === 'error') {
+              // Send error via Chat API
+              logger.error('BACKGROUND: Error after timeout, sending error via Chat API', {
+                error: result.error.message,
+                messageId: messageId.substring(0, 100)
+              });
+              try {
+                await this.sendMessage(
+                  eventData.space.name,
+                  `❌ Sorry, I encountered an error: ${result.error.message}`,
+                  result.threadKey
+                );
+              } catch (sendError) {
+                logger.error('Failed to send error via Chat API', { error: sendError.message });
+              }
+            }
+          } finally {
+            // CRITICAL: Remove from processing Map after background completion
+            this.processingMessages.delete(messageId);
+            logger.debug('Removed message from processing Map (background)', {
+              messageId,
+              remainingCount: this.processingMessages.size
+            });
+          }
+        }).catch(error => {
+          logger.error('Unhandled error in background processing', { error: error.message });
+          // Cleanup even on error
+          this.processingMessages.delete(messageId);
+        });
 
-      // Cache conversation history (use sanitized IDs)
-      await this.cacheMessage(conversationId, user, message.text, responseText);
+        return raceResult.response; // Return acknowledgment
+      } else if (raceResult.type === 'completed') {
+        // Processing won the race - return normal response
+        logger.info('SUCCESS PATH: Processing completed within timeout, returning normal response', {
+          messageId: messageId.substring(0, 100)
+        });
 
-      // Return card UI response
-      return this.createCardResponse(responseText);
+        await this.cacheMessage(conversationId, user, message.text, raceResult.responseText);
+
+        // CRITICAL: Remove from processing Map after successful completion
+        this.processingMessages.delete(messageId);
+        logger.info('Removed message from processing Map (success)', {
+          messageId: messageId.substring(0, 100),
+          remainingCount: this.processingMessages.size
+        });
+
+        return this.createCardResponse(raceResult.responseText);
+      } else if (raceResult.type === 'error') {
+        // Error occurred before timeout
+        logger.error('ERROR PATH: Error during processing', {
+          error: raceResult.error.message,
+          messageId: messageId.substring(0, 100)
+        });
+
+        // CRITICAL: Remove from processing Map after error
+        this.processingMessages.delete(messageId);
+        logger.info('Removed message from processing Map (error)', {
+          messageId: messageId.substring(0, 100),
+          remainingCount: this.processingMessages.size
+        });
+
+        return {
+          text: '❌ Sorry, I encountered an error processing your message.'
+        };
+      }
     } catch (error) {
-      logger.error('Error handling Google Chat message', { error: error.message, stack: error.stack });
+      logger.error('EXCEPTION PATH: Error handling Google Chat message', {
+        error: error.message,
+        stack: error.stack,
+        messageId: messageId?.substring(0, 100)
+      });
+
+      // CRITICAL: Remove from processing Map on exception
+      this.processingMessages.delete(messageId);
+      logger.info('Removed message from processing Map (exception)', {
+        messageId: messageId?.substring(0, 100),
+        remainingCount: this.processingMessages.size
+      });
+
       return {
         text: '❌ Sorry, I encountered an error processing your message.'
       };
@@ -539,6 +727,187 @@ class GoogleChatService {
     return {
       text: 'Card interaction received'
     };
+  }
+
+  /**
+   * PHASE 15: Handle task feedback from user
+   * User provides natural language feedback about what to fix in a task
+   */
+  async handleTaskFeedback(event) {
+    const { message, space, user } = event;
+    const messageText = message.text;
+
+    try {
+      logger.info('Processing task feedback', {
+        userId: user.name,
+        spaceName: space.name,
+        textLength: messageText.length
+      });
+
+      // 1. Parse feedback to extract task reference and modifications
+      const feedback = await this.parseTaskFeedback(messageText);
+
+      if (!feedback.taskReference) {
+        return this.createCardResponse(
+          '❌ I couldn\'t identify which task you\'re referring to. ' +
+          'Please mention the task name or ID in your feedback.\n\n' +
+          'Example: "The Customer Report task needs a revenue breakdown step."'
+        );
+      }
+
+      // 2. Find the Asana task
+      const { getAsanaService } = require('./asanaService');
+      const asana = getAsanaService();
+
+      const task = await asana.findTaskByReference(feedback.taskReference);
+
+      if (!task) {
+        return this.createCardResponse(
+          `❌ I couldn't find a task matching "${feedback.taskReference}". ` +
+          'Please check the task name and try again.'
+        );
+      }
+
+      // 3. Apply feedback modifications to task
+      await asana.applyFeedbackToTask(task.gid, feedback.modifications);
+
+      // 4. Prepare task for retry (mark incomplete, move to Try Again section)
+      await asana.prepareTaskForRetry(task.gid, feedback);
+
+      // 5. Cache feedback in conversation history
+      await this.cacheFeedbackExchange(space.name, user, messageText, task, feedback);
+
+      // 6. Confirm to user
+      return this.createCardResponse(
+        `✅ **Task Updated: ${task.name}**\n\n` +
+        `**Changes Applied:**\n${this.formatModifications(feedback.modifications)}\n\n` +
+        `The task has been marked incomplete and moved to "Morgan - Try Again" for execution.\n\n` +
+        `View in Asana: https://app.asana.com/0/${task.gid}`
+      );
+    } catch (error) {
+      logger.error('Error handling task feedback', { error: error.message, stack: error.stack });
+      return this.createCardResponse(
+        `❌ Error processing feedback: ${error.message}\n\n` +
+        'Please try again or update the task directly in Asana.'
+      );
+    }
+  }
+
+  /**
+   * PHASE 15: Parse natural language task feedback using Gemini
+   */
+  async parseTaskFeedback(messageText) {
+    const gemini = getGeminiService();
+
+    const prompt = `Analyze this user feedback about a task and extract:
+1. Task reference (name or ID mentioned)
+2. List of modifications requested (what to add, change, or remove)
+
+User feedback: "${messageText}"
+
+Respond in JSON format:
+{
+  "taskReference": "exact task name or ID mentioned",
+  "modifications": [
+    {
+      "type": "add_step|modify_step|remove_step|update_description",
+      "description": "what to add/change/remove",
+      "details": "additional context if any"
+    }
+  ],
+  "summary": "brief summary of requested changes"
+}`;
+
+    try {
+      const response = await gemini.generateResponse(prompt, {
+        platform: 'google-chat',
+        responseFormat: 'json'
+      });
+
+      // Try to parse JSON response
+      let parsed;
+      try {
+        parsed = JSON.parse(response);
+      } catch (parseError) {
+        // If response is not JSON, try to extract JSON from text
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('Could not parse feedback response as JSON');
+        }
+      }
+
+      logger.info('Parsed task feedback', {
+        taskReference: parsed.taskReference,
+        modificationsCount: parsed.modifications?.length || 0
+      });
+
+      return parsed;
+    } catch (error) {
+      logger.error('Failed to parse task feedback', { error: error.message });
+      // Return empty structure on parse failure
+      return {
+        taskReference: null,
+        modifications: [],
+        summary: 'Failed to parse feedback'
+      };
+    }
+  }
+
+  /**
+   * PHASE 15: Format modifications for display
+   */
+  formatModifications(modifications) {
+    if (!modifications || modifications.length === 0) {
+      return '(No specific modifications detected)';
+    }
+
+    return modifications.map((mod, idx) => {
+      const icon = mod.type === 'add_step' ? '➕' :
+                   mod.type === 'modify_step' ? '✏️' :
+                   mod.type === 'remove_step' ? '➖' : '📝';
+
+      let line = `${icon} ${mod.description}`;
+      if (mod.details) {
+        line += `\n   ${mod.details}`;
+      }
+      return line;
+    }).join('\n');
+  }
+
+  /**
+   * PHASE 15: Cache feedback exchange in conversation history
+   */
+  async cacheFeedbackExchange(spaceId, user, messageText, task, feedback) {
+    try {
+      await this.db.collection('conversations').doc(spaceId).set({
+        messages: this.FieldValue.arrayUnion({
+          timestamp: new Date().toISOString(),
+          userId: user.name,
+          userName: user.displayName || user.name,
+          text: messageText,
+          response: `Task updated: ${task.name}`,
+          toolsUsed: ['AsanaTaskManager'],
+          metadata: {
+            type: 'task_feedback',
+            asanaTaskGid: task.gid,
+            asanaTaskName: task.name,
+            modificationsCount: feedback.modifications.length
+          }
+        }),
+        lastActivity: this.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      logger.info('Cached feedback exchange', {
+        spaceId,
+        taskGid: task.gid,
+        modificationsCount: feedback.modifications.length
+      });
+    } catch (error) {
+      logger.error('Failed to cache feedback exchange', { error: error.message });
+      // Don't throw - caching failure shouldn't break feedback handling
+    }
   }
 }
 

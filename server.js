@@ -426,7 +426,35 @@ process.on('SIGTERM', async () => {
       logger.error('TaskOrchestrator shutdown failed', { error: error.message });
     }
 
-    // 4. Cleanup 3CX services if initialized
+    // 4. Cleanup Google Chat service if initialized (PHASE 16.3: deduplication cleanup)
+    if (ENABLE_GOOGLE_CHAT) {
+      try {
+        const { getGoogleChatService } = require('./services/googleChatService');
+        const chatService = getGoogleChatService();
+        if (chatService && chatService.destroy) {
+          chatService.destroy();
+          logger.info('Google Chat service cleanup completed');
+        }
+      } catch (error) {
+        // Google Chat service might not be initialized, that's okay
+        logger.debug('Google Chat service cleanup skipped', { reason: error.message });
+      }
+    }
+
+    // 5. Cleanup Asana service if initialized (polling intervals)
+    try {
+      const { getAsanaService } = require('./services/asanaService');
+      const asanaService = getAsanaService();
+      if (asanaService && asanaService.cleanup) {
+        await asanaService.cleanup();
+        logger.info('Asana service cleanup completed');
+      }
+    } catch (error) {
+      // Asana service might not be initialized, that's okay
+      logger.debug('Asana service cleanup skipped', { reason: error.message });
+    }
+
+    // 5. Cleanup 3CX services if initialized
     try {
       const { getThreeCXQueueManager } = require('./services/threecx-queue');
       const threeCXQueue = getThreeCXQueueManager();
