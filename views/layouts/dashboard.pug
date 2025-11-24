@@ -154,7 +154,7 @@ html(lang="en")
       //- Main Content Area
       main.flex-1.overflow-y-auto
         //- Mobile Header with Menu Toggle
-        .bg-white.shadow.md:hidden.sticky.top-0.z-10
+        .bg-white.shadow.sticky.top-0.z-10(class="md:hidden")
           .flex.items-center.justify-between.p-4
             button.text-gray-600(
               @click="sidebarOpen = !sidebarOpen"
@@ -165,7 +165,7 @@ html(lang="en")
             h2.text-lg.font-semibold.text-gray-900= title || 'Dashboard'
 
         //- Page Content
-        .container.mx-auto.px-4.py-8.md:px-6.md:py-10
+        .container.mx-auto.px-4.py-8(class="md:px-6 md:py-10")
           block content
 
     //- Alpine.js Dashboard App

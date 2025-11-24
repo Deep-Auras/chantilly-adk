@@ -60,7 +60,7 @@ block content
     .bg-white.rounded-lg.shadow.p-6.mb-6
       h2.text-xl.font-semibold.text-gray-900.mb-4 Agent Personality
       form(@submit.prevent="savePersonality")
-        .grid.grid-cols-1.md:grid-cols-2.gap-6
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
           //- Communication Style
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Communication Style
@@ -116,7 +116,7 @@ block content
     .bg-white.rounded-lg.shadow.p-6
       h2.text-xl.font-semibold.text-gray-900.mb-4 Rate Limits
       form(@submit.prevent="saveRateLimits")
-        .grid.grid-cols-1.md:grid-cols-2.gap-6
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
           //- General Rate Limit
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 General Requests
