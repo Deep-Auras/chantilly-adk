@@ -76,6 +76,18 @@ router.post('/login', async (req, res) => {
       if (isFormSubmission) {
         req.session.token = result.token;
         req.session.user = result.user;
+
+        // CRITICAL DEBUG: Log session after setting
+        logger.info('LOGIN SUCCESS - Session set', {
+          sessionID: req.sessionID,
+          hasToken: !!req.session.token,
+          hasUser: !!req.session.user,
+          username: req.session.user?.username,
+          cookieSecure: req.session.cookie.secure,
+          cookieHttpOnly: req.session.cookie.httpOnly,
+          cookieMaxAge: req.session.cookie.maxAge
+        });
+
         return res.redirect('/dashboard');
       }
 

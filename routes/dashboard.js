@@ -46,6 +46,19 @@ const validateCSRF = (req, res, next) => {
   next();
 };
 
+// CRITICAL DEBUG: Log session state before verifyToken
+router.use((req, res, next) => {
+  logger.info('DASHBOARD - Session state check', {
+    path: req.path,
+    sessionID: req.sessionID,
+    hasSession: !!req.session,
+    hasToken: !!(req.session && req.session.token),
+    hasUser: !!(req.session && req.session.user),
+    cookieHeader: req.headers.cookie ? 'present' : 'missing'
+  });
+  next();
+});
+
 // Apply authentication to all dashboard routes
 router.use(verifyToken);
 router.use(validateCSRF);
