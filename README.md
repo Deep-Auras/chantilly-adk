@@ -137,11 +137,6 @@ LOG_LEVEL=info
 NODE_ENV=production
 PORT=8080
 TOOL_EXECUTION_TIMEOUT=720000
-
-# Rollout Percentages
-VECTOR_SEARCH_ROLLOUT_PERCENTAGE=100
-SEMANTIC_TEMPLATES_ROLLOUT_PERCENTAGE=100
-SEMANTIC_TOOLS_ROLLOUT_PERCENTAGE=100
 ```
 
 ### Firestore Collections
@@ -882,7 +877,6 @@ node scripts/checkQueueStatus.js
 - Monitor memory usage via `/health` endpoint
 - Set appropriate execution timeouts (12 min for templates, 30 sec for tools)
 - Leverage dual embeddings for faster template search
-- Use vector search rollout percentage for gradual feature adoption
 
 ## Contributing
 

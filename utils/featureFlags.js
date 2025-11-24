@@ -1,55 +1,27 @@
 const { logger } = require('./logger');
 
 /**
- * Feature Flag System for Gradual Rollout
+ * Feature Flag System
  *
- * Supports percentage-based rollout for vector search features.
- * Uses random distribution to determine feature availability per request.
+ * Simple on/off switches for vector search features.
+ * All features are fully rolled out (100%).
  *
  * Environment Variables:
- * - ENABLE_VECTOR_SEARCH: Master switch (true/false)
- * - VECTOR_SEARCH_ROLLOUT_PERCENTAGE: 0-100 percentage
- * - ENABLE_SEMANTIC_TEMPLATES: Master switch
- * - SEMANTIC_TEMPLATES_ROLLOUT_PERCENTAGE: 0-100
- * - ENABLE_SEMANTIC_TOOLS: Master switch
- * - SEMANTIC_TOOLS_ROLLOUT_PERCENTAGE: 0-100
+ * - ENABLE_VECTOR_SEARCH: Enable vector search (default: true)
+ * - ENABLE_SEMANTIC_TEMPLATES: Enable semantic template matching (default: true)
+ * - ENABLE_SEMANTIC_TOOLS: Enable semantic tool detection (default: true)
  */
 class FeatureFlags {
   /**
-   * Check if vector search should be enabled for this request
+   * Check if vector search should be enabled
    * @returns {boolean} True if vector search should be used
    */
   static shouldUseVectorSearch() {
-    // Check master switch first
-    if (process.env.ENABLE_VECTOR_SEARCH !== 'true') {
-      logger.debug('Vector search disabled by master switch');
-      return false;
+    const enabled = process.env.ENABLE_VECTOR_SEARCH !== 'false';
+    if (!enabled) {
+      logger.debug('Vector search disabled');
     }
-
-    // Check rollout percentage
-    const rolloutPercentage = parseInt(process.env.VECTOR_SEARCH_ROLLOUT_PERCENTAGE || '100');
-
-    // If 100%, always enable (most common case in production)
-    if (rolloutPercentage >= 100) {
-      return true;
-    }
-
-    // If 0%, always disable
-    if (rolloutPercentage <= 0) {
-      return false;
-    }
-
-    // Random distribution for gradual rollout
-    const random = Math.random() * 100;
-    const shouldEnable = random < rolloutPercentage;
-
-    logger.debug('Vector search rollout decision', {
-      rolloutPercentage,
-      randomValue: random.toFixed(2),
-      enabled: shouldEnable
-    });
-
-    return shouldEnable;
+    return enabled;
   }
 
   /**
@@ -57,23 +29,11 @@ class FeatureFlags {
    * @returns {boolean} True if semantic templates should be used
    */
   static shouldUseSemanticTemplates() {
-    if (process.env.ENABLE_SEMANTIC_TEMPLATES !== 'true') {
-      logger.debug('Semantic templates disabled by master switch');
-      return false;
+    const enabled = process.env.ENABLE_SEMANTIC_TEMPLATES !== 'false';
+    if (!enabled) {
+      logger.debug('Semantic templates disabled');
     }
-
-    const rolloutPercentage = parseInt(process.env.SEMANTIC_TEMPLATES_ROLLOUT_PERCENTAGE || '100');
-
-    if (rolloutPercentage >= 100) {
-      return true;
-    }
-
-    if (rolloutPercentage <= 0) {
-      return false;
-    }
-
-    const random = Math.random() * 100;
-    return random < rolloutPercentage;
+    return enabled;
   }
 
   /**
@@ -81,23 +41,11 @@ class FeatureFlags {
    * @returns {boolean} True if semantic tools should be used
    */
   static shouldUseSemanticTools() {
-    if (process.env.ENABLE_SEMANTIC_TOOLS !== 'true') {
-      logger.debug('Semantic tools disabled by master switch');
-      return false;
+    const enabled = process.env.ENABLE_SEMANTIC_TOOLS !== 'false';
+    if (!enabled) {
+      logger.debug('Semantic tools disabled');
     }
-
-    const rolloutPercentage = parseInt(process.env.SEMANTIC_TOOLS_ROLLOUT_PERCENTAGE || '100');
-
-    if (rolloutPercentage >= 100) {
-      return true;
-    }
-
-    if (rolloutPercentage <= 0) {
-      return false;
-    }
-
-    const random = Math.random() * 100;
-    return random < rolloutPercentage;
+    return enabled;
   }
 
   /**
@@ -107,18 +55,12 @@ class FeatureFlags {
   static getFeatureStates() {
     return {
       vectorSearch: {
-        masterSwitch: process.env.ENABLE_VECTOR_SEARCH === 'true',
-        rolloutPercentage: parseInt(process.env.VECTOR_SEARCH_ROLLOUT_PERCENTAGE || '100'),
         enabled: this.shouldUseVectorSearch()
       },
       semanticTemplates: {
-        masterSwitch: process.env.ENABLE_SEMANTIC_TEMPLATES === 'true',
-        rolloutPercentage: parseInt(process.env.SEMANTIC_TEMPLATES_ROLLOUT_PERCENTAGE || '100'),
         enabled: this.shouldUseSemanticTemplates()
       },
       semanticTools: {
-        masterSwitch: process.env.ENABLE_SEMANTIC_TOOLS === 'true',
-        rolloutPercentage: parseInt(process.env.SEMANTIC_TOOLS_ROLLOUT_PERCENTAGE || '100'),
         enabled: this.shouldUseSemanticTools()
       }
     };

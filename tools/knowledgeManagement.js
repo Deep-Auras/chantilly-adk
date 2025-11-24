@@ -622,7 +622,7 @@ class KnowledgeManagementTool extends BaseTool {
       throw new Error('Search query, title, or searchTerms is required');
     }
 
-    // Feature flag for gradual rollout (percentage-based)
+    // Feature flag check (all features fully rolled out)
     const useVectorSearch = FeatureFlags.shouldUseVectorSearch();
 
     if (!useVectorSearch) {
