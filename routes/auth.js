@@ -46,8 +46,16 @@ router.get('/login', (req, res) => {
 // Login endpoint (supports both JSON API and form submission)
 router.post('/login', async (req, res) => {
   try {
+    logger.info('LOGIN ROUTE - Request received', {
+      body: req.body,
+      contentType: req.headers['content-type'],
+      hasUsername: !!req.body.username,
+      hasPassword: !!req.body.password
+    });
+
     const { error, value } = loginSchema.validate(req.body);
     if (error) {
+      logger.warn('LOGIN ROUTE - Validation failed', { error: error.details[0].message });
       // Form submission - redirect with error
       if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
         req.flash('error', error.details[0].message);
@@ -61,8 +69,10 @@ router.post('/login', async (req, res) => {
     }
 
     const { username, password } = value;
+    logger.info('LOGIN ROUTE - Validation passed, calling auth service', { username });
     const authService = getAuthService();
     const result = await authService.login(username, password);
+    logger.info('LOGIN ROUTE - Auth service returned', { success: result.success, username });
 
     if (result.success) {
       logger.info('Successful login', { username });
