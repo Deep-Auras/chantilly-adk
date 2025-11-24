@@ -219,43 +219,148 @@ router.get('/platforms', requireAdmin, async (req, res) => {
 });
 
 /**
- * Knowledge Base Dashboard (Stub)
+ * Knowledge Base Dashboard
  * GET /dashboard/knowledge
  */
 router.get('/knowledge', async (req, res) => {
-  res.locals.currentPage = 'knowledge';
-  res.locals.title = 'Knowledge Base';
-  res.render('dashboard/knowledge');
+  try {
+    const configManager = await getConfigManager();
+    const config = await configManager.get('config');
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const kb = getKnowledgeBase();
+
+    // Get all knowledge entries (not just enabled)
+    const entries = await kb.getAllKnowledge({ enabled: null });
+    const categories = await kb.getCategories();
+
+    res.locals.currentPage = 'knowledge';
+    res.locals.title = 'Knowledge Base';
+
+    res.render('dashboard/knowledge', {
+      agentName: config?.agentName || 'Unknown',
+      entries,
+      categories
+    });
+  } catch (error) {
+    logger.error('Knowledge Base dashboard error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load knowledge base');
+    res.redirect('/dashboard');
+  }
 });
 
 /**
- * Tools Dashboard (Stub)
+ * Tools Dashboard
  * GET /dashboard/tools
  */
 router.get('/tools', async (req, res) => {
-  res.locals.currentPage = 'tools';
-  res.locals.title = 'Custom Tools';
-  res.render('dashboard/tools');
+  try {
+    const configManager = await getConfigManager();
+    const config = await configManager.get('config');
+    const { getToolRegistry } = require('../lib/toolLoader');
+    const toolRegistry = getToolRegistry();
+
+    const tools = toolRegistry.getAllTools();
+
+    res.locals.currentPage = 'tools';
+    res.locals.title = 'Custom Tools';
+
+    res.render('dashboard/tools', {
+      agentName: config?.agentName || 'Unknown',
+      tools: tools.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        category: tool.category,
+        enabled: tool.enabled,
+        priority: tool.priority || 0
+      }))
+    });
+  } catch (error) {
+    logger.error('Tools dashboard error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load tools');
+    res.redirect('/dashboard');
+  }
 });
 
 /**
- * Tasks Dashboard (Stub)
+ * Tasks Dashboard
  * GET /dashboard/tasks
  */
 router.get('/tasks', async (req, res) => {
-  res.locals.currentPage = 'tasks';
-  res.locals.title = 'Complex Tasks';
-  res.render('dashboard/tasks');
+  try {
+    const configManager = await getConfigManager();
+    const config = await configManager.get('config');
+    const db = getFirestore();
+
+    // Get task templates
+    const templatesSnapshot = await db.collection('task-templates').get();
+    const templates = templatesSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    res.locals.currentPage = 'tasks';
+    res.locals.title = 'Complex Tasks';
+
+    res.render('dashboard/tasks', {
+      agentName: config?.agentName || 'Unknown',
+      templates
+    });
+  } catch (error) {
+    logger.error('Tasks dashboard error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load tasks');
+    res.redirect('/dashboard');
+  }
 });
 
 /**
- * Users Dashboard (Stub - Admin Only)
+ * Users Dashboard (Admin Only)
  * GET /dashboard/users
  */
 router.get('/users', requireAdmin, async (req, res) => {
-  res.locals.currentPage = 'users';
-  res.locals.title = 'User Management';
-  res.render('dashboard/users');
+  try {
+    const configManager = await getConfigManager();
+    const config = await configManager.get('config');
+    const db = getFirestore();
+
+    // Get all users
+    const usersSnapshot = await db.collection('users').get();
+    const users = usersSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        username: data.username,
+        role: data.role,
+        createdAt: data.createdAt,
+        lastLogin: data.lastLogin,
+        loginAttempts: data.loginAttempts || 0,
+        locked: data.locked || false
+      };
+    });
+
+    res.locals.currentPage = 'users';
+    res.locals.title = 'User Management';
+
+    res.render('dashboard/users', {
+      agentName: config?.agentName || 'Unknown',
+      users
+    });
+  } catch (error) {
+    logger.error('Users dashboard error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load users');
+    res.redirect('/dashboard');
+  }
 });
 
 /**
@@ -266,6 +371,107 @@ router.get('/activity', requireAdmin, async (req, res) => {
   res.locals.currentPage = 'activity';
   res.locals.title = 'Activity Logs';
   res.render('dashboard/activity');
+});
+
+/**
+ * Knowledge Base API Routes
+ */
+
+// Delete knowledge entry
+router.delete('/api/knowledge/:id', requireAdmin, async (req, res) => {
+  try {
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const kb = getKnowledgeBase();
+    await kb.deleteKnowledge(req.params.id);
+
+    // Audit log
+    const db = getFirestore();
+    await db.collection('audit-logs').add({
+      action: 'knowledge_delete',
+      entryId: req.params.id,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('Knowledge entry deleted', {
+      entryId: req.params.id,
+      userId: req.user.id
+    });
+
+    res.json({ success: true, message: 'Entry deleted successfully' });
+  } catch (error) {
+    logger.error('Failed to delete knowledge entry', {
+      error: error.message,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to delete entry' });
+  }
+});
+
+// Update knowledge entry
+router.put('/api/knowledge/:id', requireAdmin, async (req, res) => {
+  try {
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const kb = getKnowledgeBase();
+    await kb.updateKnowledge(req.params.id, req.body);
+
+    // Audit log
+    const db = getFirestore();
+    await db.collection('audit-logs').add({
+      action: 'knowledge_update',
+      entryId: req.params.id,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date(),
+      details: { keys: Object.keys(req.body) }
+    });
+
+    logger.info('Knowledge entry updated', {
+      entryId: req.params.id,
+      userId: req.user.id
+    });
+
+    res.json({ success: true, message: 'Entry updated successfully' });
+  } catch (error) {
+    logger.error('Failed to update knowledge entry', {
+      error: error.message,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to update entry' });
+  }
+});
+
+// Add knowledge entry
+router.post('/api/knowledge', requireAdmin, async (req, res) => {
+  try {
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const kb = getKnowledgeBase();
+    const id = await kb.addKnowledge(req.body);
+
+    // Audit log
+    const db = getFirestore();
+    await db.collection('audit-logs').add({
+      action: 'knowledge_add',
+      entryId: id,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('Knowledge entry added', {
+      entryId: id,
+      userId: req.user.id
+    });
+
+    res.status(201).json({ success: true, id, message: 'Entry added successfully' });
+  } catch (error) {
+    logger.error('Failed to add knowledge entry', {
+      error: error.message,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to add entry' });
+  }
 });
 
 /**

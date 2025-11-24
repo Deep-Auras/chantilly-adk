@@ -1,16 +1,73 @@
 extends ../layouts/dashboard
 
 block content
-  .mb-8
-    .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
-      div
-        h1.text-3xl.font-bold.text-gray-900 User Management
-        p.text-gray-600.mt-2 Manage users, roles, and permissions (RBAC)
+  .mb-6.flex.items-center.justify-between
+    div
+      h2.text-xl.font-semibold User Management
+      p.text-gray-600.text-sm Manage user accounts and permissions (RBAC)
 
-  .bg-white.rounded-lg.shadow.p-6
-    .text-center.py-12
-      svg.w-16.h-16.mx-auto.text-gray-400.mb-4(fill="none" stroke="currentColor" viewBox="0 0 24 24")
-        path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z")
-      h3.text-xl.font-semibold.text-gray-900.mb-2 User Management Dashboard
-      p.text-gray-600 This feature is coming soon
-      p.text-sm.text-gray-500.mt-2 Create, update, and manage user accounts with role-based access control
+    button.px-4.py-2.bg-blue-600.text-white.rounded(
+      onclick="alert('Add user functionality coming soon')"
+      class="hover:bg-blue-700"
+    ) + Add User
+
+  //- Users Summary
+  .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Total Users
+      .text-2xl.font-bold= users.length
+
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Admins
+      .text-2xl.font-bold.text-blue-600= users.filter(u => u.role === 'admin').length
+
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Regular Users
+      .text-2xl.font-bold.text-green-600= users.filter(u => u.role === 'user').length
+
+  //- Users Table
+  .bg-white.rounded-lg.shadow.overflow-hidden
+    table.min-w-full.divide-y.divide-gray-200
+      thead.bg-gray-50
+        tr
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Username
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Role
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Last Login
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Status
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Login Attempts
+
+      tbody.bg-white.divide-y.divide-gray-200
+        if users.length === 0
+          tr
+            td.px-6.py-4.text-center.text-gray-500(colspan="5") No users found
+        else
+          each user in users
+            tr
+              td.px-6.py-4.whitespace-nowrap
+                .font-medium.text-gray-900= user.username
+
+              td.px-6.py-4.whitespace-nowrap
+                if user.role === 'admin'
+                  span.px-2.py-1.text-xs.rounded.bg-purple-100.text-purple-800 Admin
+                else
+                  span.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800 User
+
+              td.px-6.py-4.whitespace-nowrap
+                if user.lastLogin
+                  .text-sm.text-gray-600= new Date(user.lastLogin._seconds * 1000).toLocaleDateString()
+                else
+                  .text-sm.text-gray-500 Never
+
+              td.px-6.py-4.whitespace-nowrap
+                if user.locked
+                  span.px-2.py-1.text-xs.rounded.bg-red-100.text-red-800 Locked
+                else
+                  span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Active
+
+              td.px-6.py-4.whitespace-nowrap
+                .text-sm.text-gray-600= user.loginAttempts

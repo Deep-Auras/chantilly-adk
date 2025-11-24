@@ -1,16 +1,57 @@
 extends ../layouts/dashboard
 
 block content
-  .mb-8
-    .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
-      div
-        h1.text-3xl.font-bold.text-gray-900 Custom Tools
-        p.text-gray-600.mt-2 Manage tool configurations and settings
+  .mb-6
+    h2.text-xl.font-semibold Tools Registry
+    p.text-gray-600.text-sm Manage and configure custom tools
 
-  .bg-white.rounded-lg.shadow.p-6
-    .text-center.py-12
-      svg.w-16.h-16.mx-auto.text-gray-400.mb-4(fill="none" stroke="currentColor" viewBox="0 0 24 24")
-        path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z")
-      h3.text-xl.font-semibold.text-gray-900.mb-2 Tools Registry Dashboard
-      p.text-gray-600 This feature is coming soon
-      p.text-sm.text-gray-500.mt-2 Configure tool settings, priorities, and dynamic loading
+  //- Tools Summary Cards
+  .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Total Tools
+      .text-2xl.font-bold= tools.length
+
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Enabled
+      .text-2xl.font-bold.text-green-600= tools.filter(t => t.enabled).length
+
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Disabled
+      .text-2xl.font-bold.text-gray-600= tools.filter(t => !t.enabled).length
+
+  //- Tools Table
+  .bg-white.rounded-lg.shadow.overflow-hidden
+    table.min-w-full.divide-y.divide-gray-200
+      thead.bg-gray-50
+        tr
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Tool Name
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Category
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Priority
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Status
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Description
+
+      tbody.bg-white.divide-y.divide-gray-200
+        each tool in tools
+          tr
+            td.px-6.py-4.whitespace-nowrap
+              .font-medium.text-gray-900= tool.name
+
+            td.px-6.py-4.whitespace-nowrap
+              span.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800= tool.category || 'general'
+
+            td.px-6.py-4.whitespace-nowrap
+              span.text-sm.text-gray-900= tool.priority
+
+            td.px-6.py-4.whitespace-nowrap
+              if tool.enabled
+                span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Enabled
+              else
+                span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-800 Disabled
+
+            td.px-6.py-4
+              .text-sm.text-gray-600= tool.description
