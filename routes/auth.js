@@ -9,7 +9,7 @@ const { logger } = require('../utils/logger');
 const loginSchema = joi.object({
   username: joi.string().alphanum().min(3).max(30).required(),
   password: joi.string().min(6).required()
-});
+}).unknown(true); // Allow CSRF token and other fields
 
 const changePasswordSchema = joi.object({
   currentPassword: joi.string().required(),
