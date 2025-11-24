@@ -68,7 +68,12 @@ router.post('/login', async (req, res) => {
       logger.info('Successful login', { username });
 
       // Form submission - set session and redirect to dashboard
-      if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+      // Check both Content-Type AND Accept headers to detect form submission
+      const isFormSubmission = req.headers['content-type']?.includes('application/x-www-form-urlencoded') ||
+                               req.headers['content-type']?.includes('multipart/form-data') ||
+                               req.headers.accept?.includes('text/html');
+
+      if (isFormSubmission) {
         req.session.token = result.token;
         req.session.user = result.user;
         return res.redirect('/dashboard');
