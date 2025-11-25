@@ -308,8 +308,8 @@ block content
                 type="checkbox"
                 x-model="systemConfig.USE_DB_PROMPTS"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
-                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
             p.text-xs.text-gray-500.mt-1 Use Firestore for prompt overrides
 
           //- Authentication
@@ -350,8 +350,8 @@ block content
                 type="checkbox"
                 x-model="systemConfig.ENABLE_HELMET"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
-                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Enable CORS
@@ -360,8 +360,8 @@ block content
                 type="checkbox"
                 x-model="systemConfig.ENABLE_CORS"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
-                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Allowed Origins (comma-separated)
@@ -399,8 +399,8 @@ block content
                 type="checkbox"
                 x-model="systemConfig.USE_CLOUD_LOGGING"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
-                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Log Level
@@ -421,8 +421,8 @@ block content
                 type="checkbox"
                 x-model="systemConfig.ENABLE_METRICS"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
-                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           //- MATTS Testing
           div
@@ -432,8 +432,8 @@ block content
                 type="checkbox"
                 x-model="systemConfig.MATTS_PARALLEL_ENABLED"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
-                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 MATTS Sequential Enabled
@@ -442,8 +442,8 @@ block content
                 type="checkbox"
                 x-model="systemConfig.MATTS_SEQUENTIAL_ENABLED"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
-                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 MATTS Parallel Variants
@@ -484,8 +484,8 @@ block content
               x-model="featureFlags.ENABLE_VECTOR_SEARCH"
               @change="saveFeatureFlag('ENABLE_VECTOR_SEARCH', $event.target.checked)"
             )
-            .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
-              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+            .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
+            .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
         //- Semantic Templates
         .flex.items-center.justify-between.p-4.border.border-gray-200.rounded-lg
@@ -498,8 +498,8 @@ block content
               x-model="featureFlags.ENABLE_SEMANTIC_TEMPLATES"
               @change="saveFeatureFlag('ENABLE_SEMANTIC_TEMPLATES', $event.target.checked)"
             )
-            .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
-              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+            .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
+            .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
         //- Semantic Tools
         .flex.items-center.justify-between.p-4.border.border-gray-200.rounded-lg
@@ -512,8 +512,8 @@ block content
               x-model="featureFlags.ENABLE_SEMANTIC_TOOLS"
               @change="saveFeatureFlag('ENABLE_SEMANTIC_TOOLS', $event.target.checked)"
             )
-            .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
-              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+            .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
+            .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
     //- Agent Personality Section
     .bg-white.rounded-lg.shadow.p-6.mb-6
