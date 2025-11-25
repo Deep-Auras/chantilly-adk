@@ -143,8 +143,11 @@ html(lang="en")
           .p-4.border-t.border-gray-700
             .flex.items-center.justify-between
               .flex.items-center.gap-3
-                .w-10.h-10.bg-gray-700.rounded-full.flex.items-center.justify-center
-                  span.text-sm.font-medium= user ? user.username.charAt(0).toUpperCase() : '?'
+                if user && user.profilePicture
+                  img.w-10.h-10.rounded-full.object-cover(src=user.profilePicture alt=user.username)
+                else
+                  .w-10.h-10.bg-gray-700.rounded-full.flex.items-center.justify-center
+                    span.text-sm.font-medium= user ? user.username.charAt(0).toUpperCase() : '?'
                 .flex.flex-col
                   span.text-sm.font-medium= user ? user.username : 'Guest'
                   span.text-xs.text-gray-400= user ? user.role : 'N/A'

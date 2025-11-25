@@ -203,22 +203,46 @@ block content
         },
 
         formatDetails(log) {
+          const parts = [];
+
+          // Add all relevant fields
+          if (log.targetUserId) {
+            parts.push(`Target User: ${log.targetUserId}`);
+          }
           if (log.entryId) {
-            return `Entry: ${log.entryId}`;
+            parts.push(`Entry: ${log.entryId}`);
           }
           if (log.toolName) {
-            return `Tool: ${log.toolName}`;
+            parts.push(`Tool: ${log.toolName}`);
           }
           if (log.section) {
-            return `Section: ${log.section}`;
+            parts.push(`Section: ${log.section}`);
           }
           if (log.platformId) {
-            return `Platform: ${log.platformId}`;
+            parts.push(`Platform: ${log.platformId}`);
           }
-          if (log.details) {
-            return JSON.stringify(log.details);
+          if (log.enabled !== undefined) {
+            parts.push(`Enabled: ${log.enabled ? 'Yes' : 'No'}`);
           }
-          return '-';
+          if (log.roles && Array.isArray(log.roles)) {
+            parts.push(`Roles: ${log.roles.join(', ')}`);
+          }
+          if (log.details && typeof log.details === 'object') {
+            // Format details object nicely
+            if (log.details.keys) {
+              parts.push(`Fields: ${log.details.keys.join(', ')}`);
+            } else if (log.details.emailChanged || log.details.passwordChanged || log.details.profilePictureChanged) {
+              const changes = [];
+              if (log.details.emailChanged) changes.push('email');
+              if (log.details.passwordChanged) changes.push('password');
+              if (log.details.profilePictureChanged) changes.push('profile picture');
+              parts.push(`Changed: ${changes.join(', ')}`);
+            } else {
+              parts.push(JSON.stringify(log.details));
+            }
+          }
+
+          return parts.length > 0 ? parts.join(' | ') : '-';
         }
       }
     }

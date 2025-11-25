@@ -67,7 +67,30 @@ router.use(validateCSRF);
 router.use(async (req, res, next) => {
   logger.info(`MIDDLEWARE - Setting res.locals.user: req.user = ${JSON.stringify(req.user)}, path = ${req.path}`);
 
-  res.locals.user = req.user;
+  // Load full user data from Firestore to get profilePicture
+  if (req.user && req.user.id) {
+    try {
+      const db = getFirestore();
+      const userDoc = await db.collection('users').doc(req.user.id).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        res.locals.user = {
+          ...req.user,
+          profilePicture: userData.profilePicture || null
+        };
+      } else {
+        res.locals.user = req.user;
+      }
+    } catch (error) {
+      logger.warn('Failed to load user profile picture', {
+        error: error.message,
+        userId: req.user.id
+      });
+      res.locals.user = req.user;
+    }
+  } else {
+    res.locals.user = req.user;
+  }
 
   // Load agent name from database config (falls back to env var, then default)
   try {
