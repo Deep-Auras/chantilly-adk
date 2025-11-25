@@ -710,25 +710,36 @@ router.get('/api/dashboard/stats', async (req, res) => {
 });
 
 /**
- * Dashboard Activity API (Stub)
+ * Dashboard Activity API
  * GET /api/dashboard/activity
  */
 router.get('/api/dashboard/activity', async (req, res) => {
   try {
     const db = getFirestore();
+    const limit = parseInt(req.query.limit) || 100;
 
     // Get recent audit logs
     const logsSnapshot = await db.collection('audit-logs')
       .orderBy('timestamp', 'desc')
-      .limit(10)
+      .limit(limit)
       .get();
 
     const activities = logsSnapshot.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
-        message: `${data.action} by ${data.username || 'System'}`,
-        timestamp: data.timestamp?.toDate?.()?.toLocaleString() || 'Unknown'
+        action: data.action,
+        username: data.username,
+        userId: data.userId,
+        timestamp: data.timestamp,
+        // Include all detail fields
+        entryId: data.entryId,
+        toolName: data.toolName,
+        section: data.section,
+        platformId: data.platformId,
+        details: data.details,
+        enabled: data.enabled,
+        roles: data.roles
       };
     });
 
