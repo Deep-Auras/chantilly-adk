@@ -2,7 +2,7 @@ extends ../layouts/dashboard
 
 block content
   div(x-data="chatController()" x-init="init()" @keydown.escape="showSettings = false")
-    .flex.flex-col.h-[calc(100vh-12rem)]
+    .flex.flex-col(style="height: calc(100vh - 12rem)")
 
       //- Chat Header
       .bg-white.rounded-t-lg.shadow.px-6.py-4.border-b.border-gray-200
