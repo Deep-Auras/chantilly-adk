@@ -1312,7 +1312,10 @@ const rateLimit = require('express-rate-limit');
 const chatRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100,
-  keyGenerator: (req) => req.user.id,
+  keyGenerator: (req) => {
+    logger.info('Chat rate limiter - generating key', { userId: req.user?.id });
+    return req.user.id;
+  },
   handler: (req, res) => {
     logger.warn('Chat rate limit exceeded', {
       userId: req.user.id,
@@ -1321,6 +1324,13 @@ const chatRateLimiter = rateLimit({
     res.status(429).json({
       error: 'Too many messages. Please wait before sending more.'
     });
+  },
+  skip: (req) => {
+    logger.info('Chat rate limiter - checking request', {
+      userId: req.user?.id,
+      path: req.path
+    });
+    return false; // Never skip
   }
 });
 
