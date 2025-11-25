@@ -103,6 +103,16 @@ block content
             )
 
           div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Node Environment
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="systemConfig.NODE_ENV"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              option(value="development") Development
+              option(value="production") Production
+              option(value="test") Test
+
+          div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Service Name
             input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
               type="text"
@@ -110,6 +120,16 @@ block content
               placeholder="chantilly-adk"
               class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Cloud Run Service URL
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.CLOUD_RUN_SERVICE_URL"
+              placeholder="https://your-service-run.app"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Your deployed Cloud Run service URL
 
           //- Queue Configuration
           div
@@ -509,7 +529,9 @@ block content
           FIRESTORE_DATABASE_ID: '#{config.FIRESTORE_DATABASE_ID || "(default)"}',
           GCS_BUCKET_NAME: '#{config.GCS_BUCKET_NAME || "chantilly-adk-files"}',
           PORT: #{config.PORT || 8080},
+          NODE_ENV: '#{config.NODE_ENV || "production"}',
           SERVICE_NAME: '#{config.SERVICE_NAME || "chantilly-adk"}',
+          CLOUD_RUN_SERVICE_URL: '#{config.CLOUD_RUN_SERVICE_URL || ""}',
           QUEUE_MAX_RETRIES: #{config.QUEUE_MAX_RETRIES || 3},
           QUEUE_RETRY_DELAY: #{config.QUEUE_RETRY_DELAY || 5000},
           TOOL_EXECUTION_TIMEOUT: #{config.TOOL_EXECUTION_TIMEOUT || 720000},
