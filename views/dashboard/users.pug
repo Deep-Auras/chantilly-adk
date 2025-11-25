@@ -26,9 +26,9 @@ block content
       .text-gray-500.text-sm Regular Users
       .text-2xl.font-bold.text-green-600= users.filter(u => u.role === 'user').length
 
-    //- Users Table
-    .bg-white.rounded-lg.shadow.overflow-hidden
-      .overflow-x-auto
+  //- Users Table (full width with padding)
+  .bg-white.rounded-lg.shadow.overflow-hidden.py-6
+    .overflow-x-auto.px-6
         table.min-w-full.divide-y.divide-gray-200
           thead.bg-gray-50
             tr
