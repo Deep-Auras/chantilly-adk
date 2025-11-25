@@ -66,7 +66,7 @@ block content
           tbody.bg-white.divide-y.divide-gray-200
             template(x-for="tool in filteredTools" :key="tool.name")
               tr
-                td.px-6.py-4.whitespace-nowrap
+                td.px-6.py-4(style="max-width: 200px;")
                   .font-medium.text-gray-900(x-text="tool.name")
                   .text-xs.text-gray-500(x-text="tool.description")
 
