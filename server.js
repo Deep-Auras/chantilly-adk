@@ -55,19 +55,54 @@ app.use(express.static(path.join(__dirname, 'public')));
 const session = require('express-session');
 const flash = require('connect-flash');
 
-// Session management for dashboard
-app.use(session({
-  secret: process.env.DASHBOARD_SESSION_SECRET || require('crypto').randomBytes(32).toString('hex'),
-  resave: false,
-  saveUninitialized: false,
-  proxy: true, // Trust proxy headers from Cloud Run
-  cookie: {
-    secure: false, // CRITICAL: Set to false because Cloud Run doesn't send X-Forwarded-Proto header
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax'
+// CRITICAL: Load session secret from Firestore, not env vars
+// Generate and store persistent session secret in Firestore if it doesn't exist
+const getSessionSecret = async () => {
+  const { getFirestore } = require('./config/firestore');
+  const db = getFirestore();
+  const configDoc = await db.collection('agent').doc('config').get();
+
+  if (configDoc.exists && configDoc.data().sessionSecret) {
+    return configDoc.data().sessionSecret;
   }
-}));
+
+  // Generate new persistent secret and store in Firestore
+  const newSecret = require('crypto').randomBytes(32).toString('hex');
+  await db.collection('agent').doc('config').set({
+    sessionSecret: newSecret
+  }, { merge: true });
+
+  logger.info('Generated and stored new session secret in Firestore');
+  return newSecret;
+};
+
+// Session management for dashboard (initialized after services start)
+let sessionMiddleware = null;
+const initSession = async () => {
+  const secret = await getSessionSecret();
+  sessionMiddleware = session({
+    secret: secret,
+    resave: false,
+    saveUninitialized: false,
+    proxy: true, // Trust proxy headers from Cloud Run
+    cookie: {
+      secure: false, // CRITICAL: Set to false because Cloud Run doesn't send X-Forwarded-Proto header
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'lax'
+    }
+  });
+};
+
+// Apply session middleware (will be initialized after Firestore is ready)
+app.use((req, res, next) => {
+  if (sessionMiddleware) {
+    sessionMiddleware(req, res, next);
+  } else {
+    // Session not ready yet, skip for now (only affects startup)
+    next();
+  }
+});
 
 // Flash messages
 app.use(flash());
@@ -171,6 +206,15 @@ async function initializeServices() {
     logger.info('Firestore initialized');
   } catch (error) {
     logger.error('Failed to initialize Firestore', error);
+    hasErrors = true;
+  }
+
+  // Initialize session with persistent secret from Firestore
+  try {
+    await initSession();
+    logger.info('Session middleware initialized with persistent secret');
+  } catch (error) {
+    logger.error('Failed to initialize session middleware', error);
     hasErrors = true;
   }
 
