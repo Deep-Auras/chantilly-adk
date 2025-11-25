@@ -42,6 +42,8 @@ app.set('views', path.join(__dirname, 'views'));
 
 // Explicit favicon route (before static middleware to ensure it's served)
 app.get('/favicon.ico', (req, res) => {
+  res.setHeader('Content-Type', 'image/x-icon');
+  res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
   res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
 });
 

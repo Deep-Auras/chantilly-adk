@@ -1,35 +1,35 @@
 extends ../layouts/dashboard
 
 block content
+  .mb-6.flex.items-center.justify-between
+    div
+      h2.text-xl.font-semibold User Management
+      p.text-gray-600.text-sm Manage user accounts and permissions (RBAC)
+
+    a.px-4.py-2.bg-blue-600.text-white.rounded(
+      href="/dashboard/profile"
+      class="hover:bg-blue-700"
+    ) My Profile
+
   div(x-data="userManager()")
-    .mb-6.flex.items-center.justify-between
-      div
-        h2.text-xl.font-semibold User Management
-        p.text-gray-600.text-sm Manage user accounts and permissions (RBAC)
+    //- Users Summary
+    .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Total Users
+        .text-2xl.font-bold= users.length
 
-      a.px-4.py-2.bg-blue-600.text-white.rounded(
-        href="/dashboard/profile"
-        class="hover:bg-blue-700"
-      ) My Profile
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Admins
+        .text-2xl.font-bold.text-blue-600= users.filter(u => u.role === 'admin').length
 
-  //- Users Summary
-  .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
-    .bg-white.rounded-lg.shadow.p-4
-      .text-gray-500.text-sm Total Users
-      .text-2xl.font-bold= users.length
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Regular Users
+        .text-2xl.font-bold.text-green-600= users.filter(u => u.role === 'user').length
 
-    .bg-white.rounded-lg.shadow.p-4
-      .text-gray-500.text-sm Admins
-      .text-2xl.font-bold.text-blue-600= users.filter(u => u.role === 'admin').length
-
-    .bg-white.rounded-lg.shadow.p-4
-      .text-gray-500.text-sm Regular Users
-      .text-2xl.font-bold.text-green-600= users.filter(u => u.role === 'user').length
-
-  //- Users Table (full width with padding)
-  .bg-white.rounded-lg.shadow.overflow-hidden.py-6
-    .overflow-x-auto.px-6
-        table.min-w-full.divide-y.divide-gray-200
+    //- Users Table (full width with padding)
+    .bg-white.rounded-lg.shadow.overflow-hidden.py-6
+      .overflow-x-auto.px-6
+          table.min-w-full.divide-y.divide-gray-200
           thead.bg-gray-50
             tr
               th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
