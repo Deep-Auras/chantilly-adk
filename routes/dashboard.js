@@ -65,11 +65,7 @@ router.use(validateCSRF);
 
 // Make user and dynamic agent name available to all views
 router.use(async (req, res, next) => {
-  logger.info('MIDDLEWARE - Setting res.locals.user', {
-    hasReqUser: !!req.user,
-    reqUserId: req.user?.id,
-    path: req.path
-  });
+  logger.info(`MIDDLEWARE - Setting res.locals.user: req.user = ${JSON.stringify(req.user)}, path = ${req.path}`);
 
   res.locals.user = req.user;
 
@@ -83,10 +79,7 @@ router.use(async (req, res, next) => {
     res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
   }
 
-  logger.info('MIDDLEWARE - About to call next()', {
-    hasReqUser: !!req.user,
-    reqUserId: req.user?.id
-  });
+  logger.info(`MIDDLEWARE - About to call next(): req.user = ${JSON.stringify(req.user)}`);
 
   next();
 });
@@ -1128,21 +1121,13 @@ router.post('/api/users/:id/unlock', requireAdmin, async (req, res) => {
 
 // Get current user profile
 router.get('/profile', async (req, res) => {
-  logger.info('PROFILE ROUTE - ENTRY', {
-    hasReqUser: !!req.user,
-    reqUserId: req.user?.id,
-    reqUserUsername: req.user?.username,
-    sessionID: req.sessionID
-  });
+  // CRITICAL DEBUG: Log full req.user object
+  logger.info(`PROFILE ROUTE - ENTRY: req.user = ${JSON.stringify(req.user)}, sessionID = ${req.sessionID}`);
 
   try {
     // CRITICAL: Check if req.user exists (set by verifyToken middleware)
     if (!req.user || !req.user.id) {
-      logger.error('Profile page error: req.user not set', {
-        hasReqUser: !!req.user,
-        userId: req.user?.id,
-        sessionID: req.sessionID
-      });
+      logger.error(`Profile page error: req.user not set. req.user = ${JSON.stringify(req.user)}, sessionID = ${req.sessionID}`);
       req.flash('error', 'Authentication error. Please log in again.');
       return res.redirect('/auth/login');
     }

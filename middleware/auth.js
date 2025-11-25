@@ -194,17 +194,9 @@ function verifyToken(req, res, next) {
       }
 
       // Token valid, set req.user
-      logger.info('VERIFY_TOKEN - Session token valid', {
-        username: user.username,
-        role: user.role,
-        userId: user.id
-      });
+      logger.info(`VERIFY_TOKEN - Session token valid: user = ${JSON.stringify(user)}`);
       req.user = user;
-      logger.info('VERIFY_TOKEN - req.user SET', {
-        hasReqUser: !!req.user,
-        reqUserId: req.user?.id,
-        reqUserUsername: req.user?.username
-      });
+      logger.info(`VERIFY_TOKEN - req.user SET: req.user = ${JSON.stringify(req.user)}`);
       return next();
     });
   } else {

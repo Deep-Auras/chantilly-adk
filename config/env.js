@@ -55,7 +55,7 @@ const envSchema = joi.object({
   // Server Configuration
   PORT: joi.number().default(8080),
   NODE_ENV: joi.string().valid('development', 'production', 'test').default('development'),
-  SERVICE_NAME: joi.string().default('bitrix24-gemini-agent'),
+  SERVICE_NAME: joi.string().default('chantilly-agent'),
   CLOUD_RUN_SERVICE_URL: joi.string().uri().default('https://placeholder.run.app'),
 
   // Cloud Tasks Configuration
