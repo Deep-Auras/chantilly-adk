@@ -316,19 +316,30 @@ app.use('/dashboard', dashboardRoutes);
 
 // Dashboard API routes (for Alpine.js AJAX calls)
 const dashboardApiRouter = express.Router();
+const { getFirestore } = require('./config/firestore');
 dashboardApiRouter.use(require('./middleware/auth').verifyToken);
 dashboardApiRouter.get('/stats', async (req, res) => {
   try {
+    const { getKnowledgeBase } = require('./services/knowledgeBase');
+    const { getToolRegistry } = require('./lib/toolLoader');
     const db = getFirestore();
-    const kbSnapshot = await db.collection('knowledge-base').count().get();
-    const templatesSnapshot = await db.collection('task-templates').count().get();
-    const toolsSnapshot = await db.collection('tool-registry').count().get();
+
+    // Get Knowledge Base stats
+    const kb = getKnowledgeBase();
+    const kbStats = await kb.getStats();
+
+    // Get Tools count (loaded from files, not Firestore)
+    const toolRegistry = getToolRegistry();
+    const tools = toolRegistry.getAllTools();
+
+    // Get Task Templates count
+    const templatesSnapshot = await db.collection('task-templates').get();
 
     res.json({
       agentStatus: 'Active',
-      kbCount: kbSnapshot.data().count,
-      toolsCount: toolsSnapshot.data().count,
-      templatesCount: templatesSnapshot.data().count
+      kbCount: kbStats.totalEntries || 0,
+      toolsCount: tools.length || 0,
+      templatesCount: templatesSnapshot.size || 0
     });
   } catch (error) {
     logger.error('Failed to fetch dashboard stats', { error: error.message, userId: req.user?.id });

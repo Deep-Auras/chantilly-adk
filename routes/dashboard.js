@@ -232,20 +232,30 @@ router.get('/platforms', requireAdmin, async (req, res) => {
  */
 router.get('/knowledge', async (req, res) => {
   try {
-    const configManager = await getConfigManager();
-    const config = await configManager.get('config');
     const { getKnowledgeBase } = require('../services/knowledgeBase');
     const kb = getKnowledgeBase();
 
     // Get all knowledge entries (not just enabled)
-    const entries = await kb.getAllKnowledge({ enabled: null });
+    const rawEntries = await kb.getAllKnowledge({ enabled: null });
+
+    // Ensure all entries have required fields with defaults
+    const entries = rawEntries.map(entry => ({
+      id: entry.id,
+      title: entry.title || 'Untitled',
+      content: entry.content || '',
+      category: entry.category || 'general',
+      priority: entry.priority || 0,
+      tags: entry.tags || [],
+      enabled: entry.enabled !== false,
+      lastUpdated: entry.lastUpdated
+    }));
+
     const categories = await kb.getCategories();
 
     res.locals.currentPage = 'knowledge';
     res.locals.title = 'Knowledge Base';
 
     res.render('dashboard/knowledge', {
-      agentName: config?.agentName || 'Unknown',
       entries,
       categories
     });
@@ -277,7 +287,6 @@ router.get('/tools', async (req, res) => {
     res.locals.title = 'Custom Tools';
 
     res.render('dashboard/tools', {
-      agentName: config?.agentName || 'Unknown',
       tools: tools.map(tool => ({
         name: tool.name,
         description: tool.description,
@@ -318,7 +327,6 @@ router.get('/tasks', async (req, res) => {
     res.locals.title = 'Complex Tasks';
 
     res.render('dashboard/tasks', {
-      agentName: config?.agentName || 'Unknown',
       templates
     });
   } catch (error) {
@@ -360,7 +368,6 @@ router.get('/users', requireAdmin, async (req, res) => {
     res.locals.title = 'User Management';
 
     res.render('dashboard/users', {
-      agentName: config?.agentName || 'Unknown',
       users
     });
   } catch (error) {
