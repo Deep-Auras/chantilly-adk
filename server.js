@@ -220,7 +220,7 @@ async function initializeServices() {
   }
 
   // Load platform configurations from database
-  const { getConfigManager } = require('./services/configManager');
+  const { getConfigManager } = require('./services/dashboard/configManager');
   const configManager = await getConfigManager();
 
   // Try Bitrix24 queue manager initialization (check database)
