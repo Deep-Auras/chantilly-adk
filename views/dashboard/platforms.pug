@@ -136,7 +136,7 @@ block content
             input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
               type="password"
               x-model="asana.accessToken"
-              placeholder="Your Asana access token"
+              :placeholder="hasAsanaAccessToken ? '••••••••••••••••••••• (configured)' : 'Your Asana access token'"
             )
 
           div(x-show="asana.enabled")
@@ -161,7 +161,7 @@ block content
             input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
               type="password"
               x-model="asana.webhookSecret"
-              placeholder="Your Asana webhook secret"
+              :placeholder="hasAsanaWebhookSecret ? '••••••••••••••••••••• (configured)' : 'Your Asana webhook secret'"
             )
             p.text-xs.text-gray-500.mt-1 Secret for validating incoming Asana webhook events
 
@@ -212,7 +212,7 @@ block content
             input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
               type="password"
               x-model="bluesky.appPassword"
-              placeholder="Your Bluesky app-specific password"
+              :placeholder="hasBlueskyAppPassword ? '••••••••••••••••••••• (configured)' : 'Your Bluesky app-specific password'"
             )
 
           div(x-show="bluesky.enabled")
@@ -253,6 +253,10 @@ block content
           appPassword: '',
           serviceUrl: '#{bluesky.serviceUrl || "https://bsky.social"}'
         },
+        // Credential existence flags for masked placeholders
+        hasAsanaAccessToken: #{hasAsanaAccessToken || false},
+        hasAsanaWebhookSecret: #{hasAsanaWebhookSecret || false},
+        hasBlueskyAppPassword: #{hasBlueskyAppPassword || false},
 
         async savePlatform(platformId) {
           try {

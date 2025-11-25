@@ -207,6 +207,10 @@ router.get('/platforms', requireAdmin, async (req, res) => {
     const asanaConfig = await configManager.getPlatform('asana');
     const blueskyConfig = await configManager.getPlatform('bluesky');
 
+    // Check if encrypted credentials exist (for showing masked placeholders)
+    const credentialsDoc = await getFirestore().collection('agent').doc('credentials').get();
+    const credentials = credentialsDoc.exists ? credentialsDoc.data() : {};
+
     res.locals.currentPage = 'platforms';
     res.locals.title = 'Platform Integrations';
 
@@ -214,7 +218,12 @@ router.get('/platforms', requireAdmin, async (req, res) => {
       bitrix24: bitrix24Config || {},
       googleChat: googleChatConfig || {},
       asana: asanaConfig || {},
-      bluesky: blueskyConfig || {}
+      bluesky: blueskyConfig || {},
+      // Credential existence flags for masked placeholders
+      hasAsanaAccessToken: !!credentials.asana_access_token,
+      hasAsanaWebhookSecret: !!credentials.asana_webhook_secret,
+      hasBlueskyAppPassword: !!credentials.bluesky_app_password,
+      hasBitrix24WebhookUrl: !!credentials.bitrix24_webhook_url
     });
   } catch (error) {
     logger.error('Platforms dashboard error', {
