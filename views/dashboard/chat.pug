@@ -183,29 +183,12 @@ block content
         },
 
         subscribeToMessages() {
-          // Use Firestore real-time listeners
-          // For now, poll every 2 seconds for new messages
-          setInterval(async () => {
-            if (!this.streaming && this.conversationId) {
-              const response = await fetch(`/dashboard/api/chat/messages?conversationId=${this.conversationId}&after=${this.getLastMessageTime()}`, {
-                headers: {
-                  'X-CSRF-Token': window.csrfToken
-                }
-              });
-
-              if (response.ok) {
-                const data = await response.json();
-                if (data.messages && data.messages.length > 0) {
-                  this.messages.push(...data.messages);
-                  this.messageCount = this.messages.length;
-
-                  if (this.autoScroll) {
-                    this.scrollToBottom();
-                  }
-                }
-              }
-            }
-          }, 2000);
+          // DISABLED: Polling not needed since messages are added immediately via SSE
+          // Real-time Firestore listeners would be implemented here in the future
+          // For now, messages are synced via:
+          // 1. Initial load in loadMessages()
+          // 2. User messages added immediately in sendMessage()
+          // 3. Assistant messages added immediately via SSE stream
         },
 
         getLastMessageTime() {
