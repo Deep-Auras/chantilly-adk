@@ -260,9 +260,11 @@ block content
 
         async savePlatform(platformId) {
           try {
-            const updates = this[platformId.replace('-', '')];
+            // CRITICAL FIX: Convert platform-id to camelCase property name (google-chat → googleChat)
+            const propertyName = platformId.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+            const updates = this[propertyName];
 
-            console.log('Saving platform:', platformId, 'with updates:', updates);
+            console.log('Saving platform:', platformId, 'property:', propertyName, 'with updates:', updates);
 
             const response = await fetch(`/dashboard/platforms/${platformId}`, {
               method: 'POST',
