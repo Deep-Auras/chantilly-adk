@@ -261,11 +261,18 @@ class BskyService {
     }
 
     try {
-      // Check if integration enabled
-      if (process.env.ENABLE_BLUESKY_INTEGRATION !== 'true') {
-        logger.info('Bluesky integration disabled (ENABLE_BLUESKY_INTEGRATION=false)');
+      // Check if integration enabled via dashboard configuration
+      const platformDoc = await this.db.collection('agent').doc('platforms').collection('bluesky').doc('config').get();
+
+      if (!platformDoc.exists || !platformDoc.data().enabled) {
+        logger.info('Bluesky integration disabled in dashboard');
         return false;
       }
+
+      const platformConfig = platformDoc.data();
+
+      // Get service URL from config (fallback to default)
+      this.serviceUrl = platformConfig.serviceUrl || 'https://bsky.social';
 
       // Create agent
       this.agent = new BskyAgent({ service: this.serviceUrl });
@@ -274,7 +281,7 @@ class BskyService {
       const sessionLoaded = await this.loadSession();
 
       if (!sessionLoaded) {
-        // Create new session
+        // Create new session using dashboard credentials
         const sessionCreated = await this.createSession();
 
         if (!sessionCreated) {
@@ -356,21 +363,47 @@ class BskyService {
    */
   async createSession() {
     try {
-      const username = process.env.BLUESKY_USERNAME;
-      const password = process.env.BLUESKY_PASSWORD;
+      // Load credentials from dashboard configuration
+      const platformDoc = await this.db.collection('agent').doc('platforms').collection('bluesky').doc('config').get();
 
-      if (!username || !password) {
-        logger.error('Bluesky credentials not configured (BLUESKY_USERNAME, BLUESKY_PASSWORD)');
+      if (!platformDoc.exists) {
+        logger.error('Bluesky platform configuration not found');
         return false;
       }
 
+      const platformConfig = platformDoc.data();
+      const handle = platformConfig.handle;
+
+      if (!handle) {
+        logger.error('Bluesky handle not configured in dashboard');
+        return false;
+      }
+
+      // Get encrypted app password from credentials collection
+      const credentialsDoc = await this.db.collection('agent').doc('credentials').get();
+
+      if (!credentialsDoc.exists || !credentialsDoc.data().bluesky_app_password) {
+        logger.error('Bluesky app password not configured in dashboard');
+        return false;
+      }
+
+      const encryptedPassword = credentialsDoc.data().bluesky_app_password;
+
+      // Decrypt app password
+      if (!this.encryption.isEnabled()) {
+        logger.error('Encryption not enabled, cannot decrypt Bluesky credentials');
+        return false;
+      }
+
+      const appPassword = this.encryption.decryptCredential(encryptedPassword);
+
       // Login
-      logger.info('Creating Bluesky session', { username });
-      const response = await this.agent.login({ identifier: username, password });
+      logger.info('Creating Bluesky session', { handle });
+      const response = await this.agent.login({ identifier: handle, password: appPassword });
 
       if (!response.success) {
         logger.error('Bluesky login failed', {
-          username,
+          handle,
           responseData: response.data || 'no data',
           responseHeaders: response.headers || 'no headers'
         });
@@ -378,9 +411,9 @@ class BskyService {
       }
 
       logger.info('Bluesky login successful', {
-        username,
+        handle,
         did: response.data.did,
-        handle: response.data.handle
+        actualHandle: response.data.handle
       });
 
       this.session = {
@@ -404,8 +437,7 @@ class BskyService {
         error: error.message,
         errorCode: error.code || 'no code',
         errorStatus: error.status || 'no status',
-        errorStack: error.stack,
-        username: process.env.BLUESKY_USERNAME
+        errorStack: error.stack
       });
       return false;
     }
@@ -429,17 +461,12 @@ class BskyService {
       const encryptedAccessJwt = this.encryption.encrypt(this.session.accessJwt);
       const encryptedRefreshJwt = this.encryption.encrypt(this.session.refreshJwt);
 
-      // Hash password for verification (if provided)
-      const password = process.env.BLUESKY_PASSWORD;
-      const passwordHash = password ? await bcrypt.hash(password, 12) : null;
-
       // Calculate expiry (access tokens typically expire in 2 hours)
       const sessionExpiry = new Date(Date.now() + 2 * 60 * 60 * 1000);
 
       const docRef = this.db.collection('bluesky-credentials').doc('auth');
       await docRef.set({
         username: this.session.handle,
-        passwordHash,
         did: this.session.did,
         accessJwt: encryptedAccessJwt,
         refreshJwt: encryptedRefreshJwt,

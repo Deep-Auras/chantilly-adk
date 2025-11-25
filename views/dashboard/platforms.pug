@@ -260,11 +260,9 @@ block content
 
         async savePlatform(platformId) {
           try {
-            // CRITICAL FIX: Convert platform-id to camelCase property name (google-chat → googleChat)
+            // Convert platform-id to camelCase property name (google-chat → googleChat)
             const propertyName = platformId.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
             const updates = this[propertyName];
-
-            console.log('Saving platform:', platformId, 'property:', propertyName, 'with updates:', updates);
 
             const response = await fetch(`/dashboard/platforms/${platformId}`, {
               method: 'POST',
@@ -275,20 +273,14 @@ block content
               body: JSON.stringify(updates)
             });
 
-            console.log('Response status:', response.status);
-
             if (response.ok) {
-              const data = await response.json();
-              console.log('Save successful:', data);
               alert('Configuration saved successfully!');
               window.location.reload();
             } else {
               const error = await response.json();
-              console.error(`Failed to update ${platformId} configuration:`, error);
               alert(`Error: ${error.error || 'Failed to save configuration'}`);
             }
           } catch (error) {
-            console.error(`Error updating ${platformId}:`, error);
             alert(`Error: ${error.message}`);
           }
         }

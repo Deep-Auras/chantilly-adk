@@ -207,12 +207,6 @@ router.get('/platforms', requireAdmin, async (req, res) => {
     const asanaConfig = await configManager.getPlatform('asana');
     const blueskyConfig = await configManager.getPlatform('bluesky');
 
-    // DEBUG: Log what we're reading from Firestore
-    logger.info('Platforms GET - Loaded configurations', {
-      googleChatEnabled: googleChatConfig?.enabled,
-      googleChatFull: JSON.stringify(googleChatConfig)
-    });
-
     // Check if encrypted credentials exist (for showing masked placeholders)
     const credentialsDoc = await getFirestore().collection('agent').doc('credentials').get();
     const credentials = credentialsDoc.exists ? credentialsDoc.data() : {};

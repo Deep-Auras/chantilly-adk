@@ -8,8 +8,19 @@ const { logger } = require('../utils/logger');
  */
 router.post('/webhook/google-chat', async (req, res) => {
   try {
+    logger.info('Google Chat webhook received', {
+      hasBody: !!req.body,
+      bodyKeys: req.body ? Object.keys(req.body) : []
+    });
+
     const event = req.body;
     const chatService = getGoogleChatService();
+
+    logger.info('Chat service obtained, analyzing event format', {
+      hasChat: !!event.chat,
+      hasType: !!event.type,
+      hasMessage: !!event.message
+    });
 
     // Google Workspace Add-on format: event.chat.messagePayload
     // Simple Chat app format: event.type, event.message, event.space
@@ -19,6 +30,7 @@ router.post('/webhook/google-chat', async (req, res) => {
     let transformedEvent = event;
 
     if (isAddOnFormat) {
+      logger.info('Add-on format detected, transforming event');
       // Transform Workspace Add-on format to simple format
       const messagePayload = event.chat.messagePayload;
 
@@ -75,7 +87,13 @@ router.post('/webhook/google-chat', async (req, res) => {
           }
 
           // Default message handling
+          logger.info('Calling handleMessage', {
+            messagePreview: transformedEvent.message?.text?.substring(0, 100)
+          });
           const response = await chatService.handleMessage(transformedEvent);
+          logger.info('handleMessage returned, sending response', {
+            hasResponse: !!response
+          });
           return res.json(response);
         }
 

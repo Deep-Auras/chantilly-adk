@@ -221,11 +221,24 @@ class GoogleChatService {
   async handleMessage(event) {
     const { message, space, user } = event;
 
+    logger.info('ENTER handleMessage', {
+      hasMessage: !!message,
+      hasSpace: !!space,
+      hasUser: !!user,
+      messageText: message?.text?.substring(0, 100)
+    });
+
     // PHASE 16.3: REQUEST DEDUPLICATION (CRITICAL - Must happen FIRST)
     // Google Chat sends duplicate webhooks within 133ms, too fast for async Map checks.
     // Use message.name (or generate stable ID) to detect duplicates.
 
     const messageId = message.name || `${space.name}-${user.name}-${message.text?.substring(0, 50)}`;
+
+    logger.info('Generated messageId for deduplication', {
+      messageId: messageId.substring(0, 100),
+      hasMessageName: !!message.name,
+      inFlightCount: this.processingMessages.size
+    });
 
     // SYNCHRONOUS duplicate check (no await before this)
     if (this.processingMessages.has(messageId)) {
@@ -258,8 +271,12 @@ class GoogleChatService {
       const conversationId = this.sanitizeId(space.name);
       const userId = this.sanitizeId(user.name);
 
+      logger.info('About to detect user role', { userId, conversationId });
+
       // Detect and store user role
       const userRole = await this.getUserRole(user, space);
+
+      logger.info('User role detected, preparing message data', { userRole });
 
       // Process message with Gemini using processMessage
       const gemini = getGeminiService();
