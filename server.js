@@ -40,6 +40,11 @@ const path = require('path');
 app.set('view engine', 'pug');
 app.set('views', path.join(__dirname, 'views'));
 
+// Explicit favicon route (before static middleware to ensure it's served)
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
+});
+
 // Serve static assets from public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
