@@ -1117,6 +1117,13 @@ router.post('/api/users/:id/unlock', requireAdmin, async (req, res) => {
 
 // Get current user profile
 router.get('/profile', async (req, res) => {
+  logger.info('PROFILE ROUTE - ENTRY', {
+    hasReqUser: !!req.user,
+    reqUserId: req.user?.id,
+    reqUserUsername: req.user?.username,
+    sessionID: req.sessionID
+  });
+
   try {
     // CRITICAL: Check if req.user exists (set by verifyToken middleware)
     if (!req.user || !req.user.id) {

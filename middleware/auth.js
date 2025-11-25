@@ -196,9 +196,15 @@ function verifyToken(req, res, next) {
       // Token valid, set req.user
       logger.info('VERIFY_TOKEN - Session token valid', {
         username: user.username,
-        role: user.role
+        role: user.role,
+        userId: user.id
       });
       req.user = user;
+      logger.info('VERIFY_TOKEN - req.user SET', {
+        hasReqUser: !!req.user,
+        reqUserId: req.user?.id,
+        reqUserUsername: req.user?.username
+      });
       return next();
     });
   } else {
