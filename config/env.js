@@ -105,7 +105,19 @@ const config = {
   ...validatedEnv,
   TRANSLATION_TARGET_DIALOG_IDS: validatedEnv.TRANSLATION_TARGET_DIALOG_IDS
     ? JSON.parse(validatedEnv.TRANSLATION_TARGET_DIALOG_IDS)
-    : {}
+    : {},
+  // DEPRECATED: Use getGeminiModelName() from config/gemini.js instead
+  // This is kept for backward compatibility and as fallback
+  get GEMINI_MODEL() {
+    // Try to get the runtime value from gemini config
+    try {
+      const { getGeminiModelName } = require('./gemini');
+      return getGeminiModelName();
+    } catch {
+      // Fallback to env var during initialization
+      return validatedEnv.GEMINI_MODEL;
+    }
+  }
 };
 
 module.exports = config;

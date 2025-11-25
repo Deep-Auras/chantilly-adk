@@ -4,16 +4,51 @@ const { logger } = require('../utils/logger');
 
 let geminiClient;
 let model;
+let geminiModelName;
 
-function initializeGemini() {
+/**
+ * Load Gemini model configuration from Firestore
+ * Falls back to env var if Firestore not available or no config set
+ */
+async function loadGeminiModelConfig() {
+  if (geminiModelName) {
+    return geminiModelName; // Already loaded
+  }
+
+  try {
+    const { getFirestore } = require('./firestore');
+    const db = getFirestore();
+    const configDoc = await db.collection('agent').doc('config').get();
+
+    if (configDoc.exists && configDoc.data().geminiModel) {
+      geminiModelName = configDoc.data().geminiModel;
+      logger.info('Loaded Gemini model from Firestore', { model: geminiModelName });
+      return geminiModelName;
+    }
+  } catch (error) {
+    logger.warn('Failed to load Gemini model from Firestore, using default', {
+      error: error.message
+    });
+  }
+
+  // Fallback to env var default
+  geminiModelName = config.GEMINI_MODEL;
+  logger.info('Using default Gemini model from env', { model: geminiModelName });
+  return geminiModelName;
+}
+
+async function initializeGemini() {
   if (!geminiClient) {
+    // Load model config from Firestore first
+    const modelName = await loadGeminiModelConfig();
+
     geminiClient = new GoogleGenAI({
       apiKey: config.GEMINI_API_KEY
     });
     model = {
       generateContent: async (prompt) => {
         return await geminiClient.models.generateContent({
-          model: config.GEMINI_MODEL,
+          model: modelName,
           contents: typeof prompt === 'string' ?
             [{ role: 'user', parts: [{ text: prompt }] }] : prompt.contents || prompt
         });
@@ -28,7 +63,7 @@ function initializeGemini() {
             });
 
             const result = await geminiClient.models.generateContent({
-              model: config.GEMINI_MODEL,
+              model: modelName,
               contents,
               systemInstruction: options.systemInstruction
             });
@@ -45,7 +80,7 @@ function initializeGemini() {
         };
       }
     };
-    logger.info(`Gemini initialized with model: ${config.GEMINI_MODEL}`);
+    logger.info(`Gemini initialized with model: ${modelName}`);
   }
   return { client: geminiClient, model };
 }
@@ -64,13 +99,21 @@ function getGeminiClient() {
   return geminiClient;
 }
 
+/**
+ * Get the configured Gemini model name
+ * Returns the model loaded from Firestore, or the default if not yet loaded
+ */
+function getGeminiModelName() {
+  return geminiModelName || config.GEMINI_MODEL;
+}
+
 // Helper function to create a model with specific settings
 function createCustomModel(modelConfig = {}) {
   const client = getGeminiClient();
   return {
     generateContent: async (request) => {
       return await client.models.generateContent({
-        model: modelConfig.model || config.GEMINI_MODEL,
+        model: modelConfig.model || getGeminiModelName(),
         ...request,
         generationConfig: {
           temperature: modelConfig.temperature || 0.7,
@@ -163,6 +206,7 @@ module.exports = {
   initializeGemini,
   getGeminiModel,
   getGeminiClient,
+  getGeminiModelName,
   getVertexAIClient,
   createCustomModel,
   extractGeminiText
