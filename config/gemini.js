@@ -195,20 +195,31 @@ function extractGeminiText(result, options = {}) {
 
   // Optional debug logging
   if (includeLogging && customLogger) {
-    customLogger('debug', 'Gemini response parts breakdown', {
+    customLogger('Gemini response parts breakdown', {
+      hasCandidates: !!result.candidates,
+      candidatesLength: result.candidates?.length || 0,
       totalParts: allParts.length,
       partTypes: allParts.map((p, i) => ({
         index: i,
+        keys: Object.keys(p),
         hasText: !!p.text,
         isThought: !!p.thought,
         textLength: p.text?.length || 0,
-        textPreview: p.text?.substring(0, 100) || ''
+        textPreview: p.text?.substring(0, 200) || '',
+        fullPart: JSON.stringify(p).substring(0, 500)
       }))
     });
   }
 
   // Filter out thought parts (Gemini 2.5 includes reasoning with thought: true)
   const textParts = allParts.filter(part => !part.thought);
+
+  logger.info('extractGeminiText result', {
+    totalParts: allParts.length,
+    textPartsAfterFilter: textParts.length,
+    hasAnyText: textParts.some(p => p.text),
+    combinedLength: textParts.map(part => part.text || '').join('').length
+  });
 
   // Combine all text parts into a single string
   return textParts.map(part => part.text || '').join('');
