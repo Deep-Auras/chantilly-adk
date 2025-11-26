@@ -70,9 +70,10 @@ class KnowledgeBaseService {
 
   async loadCache() {
     try {
+      // CRITICAL FIX: Load ALL entries (enabled and disabled) for dashboard CRUD
+      // The cache is used by both AI queries (need enabled only) and dashboard (needs all)
       const snapshot = await this.db
         .collection('knowledge-base')
-        .where('enabled', '==', true)
         .orderBy('priority', 'desc')
         .get();
 
@@ -87,6 +88,7 @@ class KnowledgeBaseService {
           category: data.category,
           priority: data.priority || 0,
           searchTerms: data.searchTerms || [],
+          enabled: data.enabled !== false, // Default to true if not set
           lastUpdated: data.lastUpdated
         });
       });
@@ -132,6 +134,11 @@ class KnowledgeBaseService {
 
     for (const [id, entry] of this.cache) {
       let score = 0;
+
+      // CRITICAL: Only search enabled entries for AI queries
+      if (!entry.enabled) {
+        continue;
+      }
 
       // Skip if category filter doesn't match
       if (validatedCategory && entry.category !== validatedCategory) {

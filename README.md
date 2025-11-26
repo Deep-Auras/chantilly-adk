@@ -65,84 +65,69 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
    ngrok http 8080
    ```
 
-### Cloud Run Deployment
+### Cloud Run Deployment (2025 - Zero-Config)
 
-**Note**: The application is already deployed to Cloud Run. For environment updates only:
+**Prerequisites - Enable Required APIs:**
 
-```bash
-# Update environment variables
-gcloud run services update chantilly-adk \
-  --region us-central1 \
-  --update-env-vars NEW_VAR=value
+Before deploying, enable these Google Cloud APIs (go to each link and click "ENABLE"):
 
-# Deploy Firestore indexes (when adding vector search fields)
-npm run deploy:indexes
-```
+1. **[Cloud Firestore API](https://console.cloud.google.com/apis/library/firestore.googleapis.com)** - Database storage
+2. **[Cloud Run API](https://console.cloud.google.com/apis/library/run.googleapis.com)** - Serverless hosting
+3. **[Artifact Registry API](https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com)** - Docker images
+4. **[Cloud Build API](https://console.cloud.google.com/apis/library/cloudbuild.googleapis.com)** - CI/CD builds
+5. **[Cloud Logging API](https://console.cloud.google.com/apis/library/logging.googleapis.com)** - Application logs
+6. **[Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com)** - Text embeddings
 
-**For reference only** (initial deployment already completed):
+After enabling APIs, **create Firestore database**:
+- Go to [Firestore](https://console.cloud.google.com/firestore)
+- Click **"Create database"**
+- Choose **"Native mode"** (NOT Datastore mode)
+- Select location: **us-central1** (match your Cloud Run region)
+- Click **"Create"**
 
-```bash
-# Validate before deployment
-npm run validate  # Run tests, linting, and security audit
+**New Deployment from Repository**:
 
-# Deploy to Cloud Run
-gcloud run deploy chantilly-adk \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --min-instances 1 \
-  --max-instances 100
-```
+1. **Push your code to GitHub** (or GitLab/Bitbucket)
+
+2. **Create Cloud Run Service via Console**:
+   - Go to [Google Cloud Console > Cloud Run](https://console.cloud.google.com/run)
+   - Click "Create Service"
+   - Select "Continuously deploy from a repository (source or function)"
+   - Connect your GitHub repository
+   - Select branch (main/master)
+   - Set region: `us-central1`
+   - Set minimum instances: `1` (recommended for production)
+   - Set maximum instances: `100`
+   - Click "Create"
+
+3. **Access Setup Wizard**:
+   - Wait for deployment to complete (~2-3 minutes)
+   - Open the Cloud Run service URL in your browser
+   - You'll be automatically redirected to `/setup`
+   - Complete the 6-step setup wizard:
+     - **Step 1**: Welcome
+     - **Step 2**: Create admin user (username, email, password)
+     - **Step 3**: Configure agent identity (agent name)
+     - **Step 4**: API configuration (Gemini API key, model selection)
+     - **Step 5**: Review & confirm
+     - **Step 6**: Success! Credentials displayed
+
+4. **Deploy Firestore Indexes** (one-time, from local machine):
+   ```bash
+   npm run deploy:indexes
+   ```
+
+**Key Benefits**:
+- ✅ **Zero environment variables** - ADC provides `GOOGLE_CLOUD_PROJECT` automatically
+- ✅ **No manual configuration** - Everything configured via web UI
+- ✅ **Continuous deployment** - Push to GitHub auto-deploys in ~2-3 minutes
+- ✅ **Secure setup** - All config stored in Firestore, wizard auto-disabled after completion
+
+**Platform Integration** (optional, after initial setup):
+- Configure Bitrix24/Google Chat/Asana via dashboard after setup
+- See dashboard at `/dashboard` (requires admin login)
 
 ## Configuration
-
-### Required Environment Variables
-
-```bash
-# Bitrix24
-BITRIX24_DOMAIN=your-domain.bitrix24.com
-BITRIX24_INBOUND_WEBHOOK=https://your-domain.bitrix24.com/rest/1/key/
-BITRIX24_OUTBOUND_SECRET=secret-key
-BITRIX24_USER_ID=1
-
-# Google Cloud
-GOOGLE_CLOUD_PROJECT=your-project-id
-FIRESTORE_DATABASE_ID=chantilly-agent-${AGENT_NAME}
-VERTEX_AI_LOCATION=us-central1
-
-# Gemini
-GEMINI_API_KEY=your-api-key
-GEMINI_MODEL=gemini-2.5-pro
-
-# Auth
-JWT_SECRET=your-jwt-secret
-DEFAULT_ADMIN_USERNAME=admin
-DEFAULT_ADMIN_PASSWORD=secure-password
-DEFAULT_ADMIN_EMAIL=admin@company.com
-```
-
-### Optional Environment Variables
-
-```bash
-# Feature Flags
-ENABLE_VECTOR_SEARCH=true
-ENABLE_SEMANTIC_TEMPLATES=true
-ENABLE_SEMANTIC_TOOLS=true
-REASONING_MEMORY_ENABLED=true
-TRANSLATION_ENABLED=true
-
-# Configuration
-USE_DB_PROMPTS=false
-LOG_LEVEL=info
-NODE_ENV=production
-PORT=8080
-TOOL_EXECUTION_TIMEOUT=720000
-
-# Rollout Percentages
-VECTOR_SEARCH_ROLLOUT_PERCENTAGE=100
-SEMANTIC_TEMPLATES_ROLLOUT_PERCENTAGE=100
-SEMANTIC_TOOLS_ROLLOUT_PERCENTAGE=100
-```
 
 ### Firestore Collections
 
@@ -882,7 +867,6 @@ node scripts/checkQueueStatus.js
 - Monitor memory usage via `/health` endpoint
 - Set appropriate execution timeouts (12 min for templates, 30 sec for tools)
 - Leverage dual embeddings for faster template search
-- Use vector search rollout percentage for gradual feature adoption
 
 ## Contributing
 

@@ -1,6 +1,6 @@
-const BaseTool = require('../baseTool');
-const { getReasoningMemoryModel } = require('../../models/reasoningMemory');
-const embeddingService = require('../../services/embeddingService');
+const BaseTool = require('../lib/baseTool');
+const { getReasoningMemoryModel } = require('../models/reasoningMemory');
+const embeddingService = require('../services/embeddingService');
 
 /**
  * MemoryManagementTool - Manage ReasoningBank memory system
@@ -13,41 +13,40 @@ const embeddingService = require('../../services/embeddingService');
  */
 class MemoryManagementTool extends BaseTool {
   constructor() {
-    super({
-      name: 'MemoryManagement',
-      description: 'Manage ReasoningBank memory: list, search, delete, and analyze memory items from past task executions and repairs',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: {
-            type: 'string',
-            enum: ['list', 'search', 'delete', 'stats'],
-            description: 'Action to perform: list (show recent memories), search (find by query), delete (remove memory), stats (system statistics)'
-          },
-          memoryId: {
-            type: 'string',
-            description: 'Memory ID (required for delete action)'
-          },
-          searchQuery: {
-            type: 'string',
-            description: 'Search query text (required for search action)'
-          },
-          category: {
-            type: 'string',
-            enum: ['error_pattern', 'fix_strategy', 'api_usage', 'general_strategy'],
-            description: 'Filter by category (optional for list/search)'
-          },
-          limit: {
-            type: 'number',
-            description: 'Number of results to return (default: 10, max: 100)',
-            minimum: 1,
-            maximum: 100
-          }
-        },
-        required: ['action']
-      }
-    });
+    super();
 
+    this.name = 'MemoryManagement';
+    this.description = 'Manage ReasoningBank memory: list, search, delete, and analyze memory items from past task executions and repairs';
+    this.parameters = {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['list', 'search', 'delete', 'stats'],
+          description: 'Action to perform: list (show recent memories), search (find by query), delete (remove memory), stats (system statistics)'
+        },
+        memoryId: {
+          type: 'string',
+          description: 'Memory ID (required for delete action)'
+        },
+        searchQuery: {
+          type: 'string',
+          description: 'Search query text (required for search action)'
+        },
+        category: {
+          type: 'string',
+          enum: ['error_pattern', 'fix_strategy', 'api_usage', 'general_strategy'],
+          description: 'Filter by category (optional for list/search)'
+        },
+        limit: {
+          type: 'number',
+          description: 'Number of results to return (default: 10, max: 100)',
+          minimum: 1,
+          maximum: 100
+        }
+      },
+      required: ['action']
+    };
     this.priority = 40;
     this.memoryModel = null;
   }

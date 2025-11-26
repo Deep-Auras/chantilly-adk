@@ -22,16 +22,13 @@ const authRoutes = require('./routes/auth');
 const knowledgeRoutes = require('./routes/knowledge');
 const workerRoutes = require('./routes/worker');
 const adminRoutes = require('./routes/admin');
+const dashboardRoutes = require('./routes/dashboard');
+const setupRoutes = require('./routes/setup');
 
-// Conditional platform integrations
-const ENABLE_BITRIX24 = process.env.ENABLE_BITRIX24_INTEGRATION === 'true';
-const ENABLE_GOOGLE_CHAT = process.env.ENABLE_GOOGLE_CHAT_INTEGRATION === 'true';
-const ENABLE_ASANA = process.env.ENABLE_ASANA_INTEGRATION === 'true';
-
-// Load platform-specific routes conditionally
-const bitrixWebhook = ENABLE_BITRIX24 ? require('./webhooks/bitrix') : null;
-const googleChatRoutes = ENABLE_GOOGLE_CHAT ? require('./routes/googleChat') : null;
-const asanaRoutes = ENABLE_ASANA ? require('./routes/asana') : null;
+// ALWAYS load all platform routes (enabled status determined by database, not env vars)
+const bitrixWebhook = require('./webhooks/bitrix');
+const googleChatRoutes = require('./routes/googleChat');
+const asanaRoutes = require('./routes/asana');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -39,14 +36,102 @@ const PORT = process.env.PORT || 8080;
 // Configure Express for Cloud Run proxy (trust exactly 1 proxy for security)
 app.set('trust proxy', 1);
 
+// Configure Pug template engine for dashboard
+const path = require('path');
+app.set('view engine', 'pug');
+app.set('views', path.join(__dirname, 'views'));
+
+// Explicit favicon route (before static middleware to ensure it's served)
+app.get('/favicon.ico', (req, res) => {
+  res.setHeader('Content-Type', 'image/x-icon');
+  res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+  res.sendFile(path.join(__dirname, 'public', 'favicon.ico'));
+});
+
+// Serve static assets from public directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Dashboard middleware (session, flash messages)
+// Note: csurf is deprecated, using custom CSRF implementation
+const session = require('express-session');
+const flash = require('connect-flash');
+
+// CRITICAL: Load session secret from Firestore, not env vars
+// Generate and store persistent session secret in Firestore if it doesn't exist
+const getSessionSecret = async () => {
+  const { getFirestore } = require('./config/firestore');
+  const db = getFirestore();
+  const configDoc = await db.collection('agent').doc('config').get();
+
+  if (configDoc.exists && configDoc.data().sessionSecret) {
+    return configDoc.data().sessionSecret;
+  }
+
+  // Generate new persistent secret and store in Firestore
+  const newSecret = require('crypto').randomBytes(32).toString('hex');
+  await db.collection('agent').doc('config').set({
+    sessionSecret: newSecret
+  }, { merge: true });
+
+  logger.info('Generated and stored new session secret in Firestore');
+  return newSecret;
+};
+
+// Session management for dashboard (initialized after services start)
+let sessionMiddleware = null;
+const initSession = async () => {
+  const secret = await getSessionSecret();
+  sessionMiddleware = session({
+    secret: secret,
+    resave: false,
+    saveUninitialized: false,
+    proxy: true, // Trust proxy headers from Cloud Run
+    cookie: {
+      secure: false, // CRITICAL: Set to false because Cloud Run doesn't send X-Forwarded-Proto header
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'lax'
+    }
+  });
+};
+
+// Apply session middleware (will be initialized after Firestore is ready)
+app.use((req, res, next) => {
+  if (sessionMiddleware) {
+    sessionMiddleware(req, res, next);
+  } else {
+    // Session not ready yet, skip for now (only affects startup)
+    next();
+  }
+});
+
+// Flash messages
+app.use(flash());
+
+// Make user and flash messages available to all views
+app.use((req, res, next) => {
+  res.locals.user = req.user || null;
+
+  // Only use flash if session is initialized
+  if (sessionMiddleware && req.flash) {
+    res.locals.success = req.flash('success');
+    res.locals.error = req.flash('error');
+  } else {
+    res.locals.success = [];
+    res.locals.error = [];
+  }
+
+  next();
+});
+
 // Security middleware (OWASP compliant)
 app.use(securityHeaders);
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ['\'self\''],
-      styleSrc: ['\'self\'', '\'unsafe-inline\''],
-      scriptSrc: ['\'self\''],
+      styleSrc: ['\'self\'', '\'unsafe-inline\'', 'https://cdn.tailwindcss.com'],
+      scriptSrc: ['\'self\'', '\'unsafe-eval\'', '\'unsafe-inline\'', 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'],
       imgSrc: ['\'self\'', 'data:', 'https:']
     }
   },
@@ -127,9 +212,19 @@ async function initializeServices() {
   // Try Firestore initialization
   try {
     await initializeFirestore();
+    firestoreReady = true; // Signal that Firestore is ready for requests
     logger.info('Firestore initialized');
   } catch (error) {
     logger.error('Failed to initialize Firestore', error);
+    hasErrors = true;
+  }
+
+  // Initialize session with persistent secret from Firestore
+  try {
+    await initSession();
+    logger.info('Session middleware initialized with persistent secret');
+  } catch (error) {
+    logger.error('Failed to initialize session middleware', error);
     hasErrors = true;
   }
 
@@ -185,48 +280,55 @@ async function initializeServices() {
     hasErrors = true;
   }
 
-  // Try Bitrix24 queue manager initialization (conditional)
-  if (ENABLE_BITRIX24) {
-    try {
+  // Load platform configurations from database
+  const { getConfigManager } = require('./services/dashboard/configManager');
+  const configManager = await getConfigManager();
+
+  // Try Bitrix24 queue manager initialization (check database)
+  try {
+    const bitrix24Config = await configManager.getPlatform('bitrix24');
+    if (bitrix24Config?.enabled) {
       const { initializeQueue } = require('./services/bitrix24-queue');
       await initializeQueue();
       logger.info('Bitrix24 queue manager initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Bitrix24 queue manager', error);
-      hasErrors = true;
+    } else {
+      logger.info('Bitrix24 integration disabled in database - skipping queue initialization');
     }
-  } else {
-    logger.info('Bitrix24 integration disabled - skipping queue initialization');
+  } catch (error) {
+    logger.error('Failed to initialize Bitrix24 queue manager', error);
+    hasErrors = true;
   }
 
-  // Try Google Chat service initialization (conditional)
-  if (ENABLE_GOOGLE_CHAT) {
-    try {
+  // Try Google Chat service initialization (check database)
+  try {
+    const googleChatConfig = await configManager.getPlatform('google-chat');
+    if (googleChatConfig?.enabled) {
       const { getGoogleChatService } = require('./services/googleChatService');
       const chatService = getGoogleChatService();
       await chatService.initialize();
-      logger.info('Google Chat service initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Google Chat service', error);
-      hasErrors = true;
+      logger.info('Google Chat service initialized (enabled in database)');
+    } else {
+      logger.info('Google Chat integration disabled in database - skipping initialization');
     }
-  } else {
-    logger.info('Google Chat integration disabled - skipping initialization');
+  } catch (error) {
+    logger.error('Failed to initialize Google Chat service', error);
+    hasErrors = true;
   }
 
-  // Try Asana service initialization (conditional)
-  if (ENABLE_ASANA) {
-    try {
+  // Try Asana service initialization (check database)
+  try {
+    const asanaConfig = await configManager.getPlatform('asana');
+    if (asanaConfig?.enabled) {
       const { getAsanaService } = require('./services/asanaService');
       const asanaService = getAsanaService();
       await asanaService.initialize();
-      logger.info('Asana service initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Asana service', error);
-      hasErrors = true;
+      logger.info('Asana service initialized (enabled in database)');
+    } else {
+      logger.info('Asana integration disabled in database - skipping initialization');
     }
-  } else {
-    logger.info('Asana integration disabled - skipping initialization');
+  } catch (error) {
+    logger.error('Failed to initialize Asana service', error);
+    hasErrors = true;
   }
 
   // Try 3CX authentication service initialization (optional)
@@ -256,8 +358,77 @@ async function initializeServices() {
   return !hasErrors;
 }
 
+// Readiness check - ensure Firestore is initialized before handling requests
+// Must come BEFORE any other middleware that needs database access
+let firestoreReady = false;
+app.use(async (req, res, next) => {
+  // Always allow health checks
+  if (req.path === '/health') {
+    return next();
+  }
+
+  // Wait for Firestore to be ready (with timeout)
+  if (!firestoreReady) {
+    const maxWaitTime = 30000; // 30 seconds
+    const checkInterval = 100; // Check every 100ms
+    let waited = 0;
+
+    while (!firestoreReady && waited < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+      waited += checkInterval;
+    }
+
+    if (!firestoreReady) {
+      logger.error('Firestore not ready after timeout', {
+        path: req.path,
+        waitedMs: waited
+      });
+      return res.status(503).send('Service Unavailable - Database not ready');
+    }
+  }
+
+  next();
+});
+
+// Setup wizard middleware - redirect to setup if needed
+// Must be registered AFTER readiness check
+let setupCheckInitialized = false;
+app.use(async (req, res, next) => {
+  // Skip setup check for certain routes
+  const skipPaths = ['/health', '/setup', '/favicon.ico'];
+  const shouldSkip = skipPaths.some(path => req.path.startsWith(path)) ||
+                     req.path.match(/\.(css|js|png|jpg|jpeg|gif|ico)$/);
+
+  if (shouldSkip) {
+    return next();
+  }
+
+  // Only check after Firestore is initialized
+  if (!setupCheckInitialized) {
+    try {
+      const { isSetupNeeded } = require('./routes/setup');
+      const needsSetup = await isSetupNeeded();
+
+      if (needsSetup && req.path !== '/setup') {
+        logger.info('Setup needed - redirecting to setup wizard', {
+          requestedPath: req.path
+        });
+        return res.redirect('/setup');
+      }
+
+      setupCheckInitialized = !needsSetup;
+    } catch (error) {
+      // If we can't check setup status, let the request continue
+      // (setup routes will handle errors appropriately)
+      logger.warn('Could not check setup status', { error: error.message });
+    }
+  }
+
+  next();
+});
+
 // Routes
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     status: 'healthy',
     service: 'Chantilly Agent',
@@ -269,8 +440,73 @@ app.get('/', (req, res) => {
 // Health check endpoint for Cloud Run
 app.get('/health', healthCheck);
 
+// Setup wizard routes (must be before auth requirement)
+app.use('/setup', setupRoutes);
+
 // Authentication routes
 app.use('/auth', authRoutes);
+
+// Dashboard routes (web-based configuration management)
+app.use('/dashboard', dashboardRoutes);
+
+// Dashboard API routes (for Alpine.js AJAX calls)
+const dashboardApiRouter = express.Router();
+const { getFirestore } = require('./config/firestore');
+dashboardApiRouter.use(require('./middleware/auth').verifyToken);
+dashboardApiRouter.get('/stats', async (req, res) => {
+  try {
+    const { getKnowledgeBase } = require('./services/knowledgeBase');
+    const { getToolRegistry } = require('./lib/toolLoader');
+    const db = getFirestore();
+
+    // Get Knowledge Base stats
+    const kb = getKnowledgeBase();
+    const kbStats = await kb.getStats();
+
+    // Get Tools count (loaded from files, not Firestore)
+    const toolRegistry = getToolRegistry();
+    const tools = toolRegistry.getAllTools();
+
+    // Get Task Templates count
+    const templatesSnapshot = await db.collection('task-templates').get();
+
+    res.json({
+      agentStatus: 'Active',
+      kbCount: kbStats.totalEntries || 0,
+      toolsCount: tools.length || 0,
+      templatesCount: templatesSnapshot.size || 0
+    });
+  } catch (error) {
+    logger.error('Failed to fetch dashboard stats', { error: error.message, userId: req.user?.id });
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+dashboardApiRouter.get('/activity', async (req, res) => {
+  try {
+    const db = getFirestore();
+    const logsSnapshot = await db.collection('audit-logs')
+      .orderBy('timestamp', 'desc')
+      .limit(10)
+      .get();
+
+    const activities = logsSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        message: `${data.action} by ${data.username || 'system'}`,
+        timestamp: data.timestamp?.toDate().toLocaleString() || 'Unknown'
+      };
+    });
+
+    res.json({ activities });
+  } catch (error) {
+    logger.error('Failed to fetch recent activity', { error: error.message, userId: req.user?.id });
+    res.status(500).json({ error: 'Failed to fetch activity' });
+  }
+});
+
+app.use('/api/dashboard', dashboardApiRouter);
 
 // Admin routes (Bitrix user management, role control)
 app.use('/admin', adminRoutes);
@@ -284,40 +520,34 @@ app.use('/knowledge', knowledgeRoutes);
 // Worker routes for Cloud Tasks background processing
 app.use('/worker', workerRoutes);
 
-// Platform-specific routes (conditional)
-if (ENABLE_GOOGLE_CHAT && googleChatRoutes) {
-  app.use('/', googleChatRoutes);
-  logger.info('Google Chat routes registered');
-}
+// Platform-specific routes (ALWAYS registered - handlers check database for enabled status)
+app.use('/', googleChatRoutes);
+logger.info('Google Chat routes registered at /webhook/google-chat');
 
-if (ENABLE_ASANA && asanaRoutes) {
-  app.use('/', asanaRoutes);
-  logger.info('Asana routes registered');
-}
+app.use('/', asanaRoutes);
+logger.info('Asana routes registered');
 
-if (ENABLE_BITRIX24 && bitrixWebhook) {
-  // Bitrix24 webhook endpoint with rate limiting
-  const webhookLimiter = require('express-rate-limit')({
-    windowMs: 60 * 1000,
-    max: 100,
-    keyGenerator: (req) => {
-      const ip = req.ip || req.connection.remoteAddress || 'unknown';
-      const signature = req.headers['x-bitrix24-signature'] || '';
-      return `webhook-${ip}-${signature.substring(0, 10)}`;
-    }
-  });
+// Bitrix24 webhook endpoint with rate limiting
+const webhookLimiter = require('express-rate-limit')({
+  windowMs: 60 * 1000,
+  max: 100,
+  keyGenerator: (req) => {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const signature = req.headers['x-bitrix24-signature'] || '';
+    return `webhook-${ip}-${signature.substring(0, 10)}`;
+  }
+});
 
-  app.all('/webhook/bitrix24', webhookLimiter, bitrixWebhook);
-  logger.info('Bitrix24 routes registered');
-}
+app.all('/webhook/bitrix24', webhookLimiter, bitrixWebhook);
+logger.info('Bitrix24 routes registered at /webhook/bitrix24');
 
 // 404 handler
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });
 });
 
 // Error handler with better null/undefined handling
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   // Handle null/undefined errors gracefully
   const errorMessage = err?.message || 'Unknown error occurred';
   const errorStack = err?.stack || 'No stack trace available';
@@ -376,17 +606,15 @@ process.on('SIGTERM', async () => {
   try {
     // SECURITY FIX: Clear all intervals and cleanup resources
 
-    // 1. Cleanup Bitrix24 webhook cache (if enabled)
-    if (ENABLE_BITRIX24) {
-      try {
-        const webhookCleanup = require('./webhooks/bitrix').cleanup;
-        if (webhookCleanup) {
-          webhookCleanup();
-          logger.info('Bitrix24 webhook cache cleanup completed');
-        }
-      } catch (error) {
-        logger.error('Bitrix24 webhook cleanup failed', { error: error.message });
+    // 1. Cleanup Bitrix24 webhook cache
+    try {
+      const webhookCleanup = require('./webhooks/bitrix').cleanup;
+      if (webhookCleanup) {
+        webhookCleanup();
+        logger.info('Bitrix24 webhook cache cleanup completed');
       }
+    } catch (error) {
+      logger.error('Bitrix24 webhook cleanup failed', { error: error.message });
     }
 
     // 2. Cleanup GeminiService intervals
@@ -427,18 +655,16 @@ process.on('SIGTERM', async () => {
     }
 
     // 4. Cleanup Google Chat service if initialized (PHASE 16.3: deduplication cleanup)
-    if (ENABLE_GOOGLE_CHAT) {
-      try {
-        const { getGoogleChatService } = require('./services/googleChatService');
-        const chatService = getGoogleChatService();
-        if (chatService && chatService.destroy) {
-          chatService.destroy();
-          logger.info('Google Chat service cleanup completed');
-        }
-      } catch (error) {
-        // Google Chat service might not be initialized, that's okay
-        logger.debug('Google Chat service cleanup skipped', { reason: error.message });
+    try {
+      const { getGoogleChatService } = require('./services/googleChatService');
+      const chatService = getGoogleChatService();
+      if (chatService && chatService.destroy) {
+        chatService.destroy();
+        logger.info('Google Chat service cleanup completed');
       }
+    } catch (error) {
+      // Google Chat service might not be initialized, that's okay
+      logger.debug('Google Chat service cleanup skipped', { reason: error.message });
     }
 
     // 5. Cleanup Asana service if initialized (polling intervals)
@@ -452,6 +678,16 @@ process.on('SIGTERM', async () => {
     } catch (error) {
       // Asana service might not be initialized, that's okay
       logger.debug('Asana service cleanup skipped', { reason: error.message });
+    }
+
+    // 6. Cleanup Chat service SSE connections (prevent memory leaks)
+    try {
+      const { ChatService } = require('./services/chatService');
+      ChatService.cleanup();
+      logger.info('Chat service SSE connections cleaned up');
+    } catch (error) {
+      // Chat service might not be initialized, that's okay
+      logger.debug('Chat service cleanup skipped', { reason: error.message });
     }
 
     // 5. Cleanup 3CX services if initialized

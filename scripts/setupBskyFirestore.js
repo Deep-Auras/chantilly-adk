@@ -188,7 +188,7 @@ async function setupBlueskyFirestore() {
     console.log('   - ENABLE_BLUESKY_INTEGRATION=false (enable after testing)');
     console.log('   - BLUESKY_USERNAME=your-handle.bsky.social');
     console.log('   - BLUESKY_PASSWORD=app-password-from-bluesky');
-    console.log('   - BLUESKY_ENCRYPTION_KEY=<generated-key>');
+    console.log('   - CREDENTIAL_ENCRYPTION_KEY=<generated-key>  (for all credential encryption)');
     console.log('');
     console.log('3. Create Bluesky app password:');
     console.log('   - Log into https://bsky.app');

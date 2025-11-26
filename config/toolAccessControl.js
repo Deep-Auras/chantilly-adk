@@ -33,6 +33,7 @@ const TOOL_ACCESS_CONTROL = {
   // General tools (always available)
   DrawioGenerator: ['user', 'admin'],
   GoogleMapsPlaces: ['user', 'admin'],
+  reminder: ['user', 'admin'],
   weather: ['user', 'admin'],
   WebBrowser: ['user', 'admin'],
   WebSearch: ['user', 'admin'],
@@ -46,6 +47,7 @@ const TOOL_ACCESS_CONTROL = {
   // General admin tools (always available)
   ComplexTaskManager: ['admin'],
   KnowledgeManagement: ['admin'],
+  MemoryManagement: ['admin'],
   SimpleTaskCreator: ['admin'],
   TaskManagement: ['admin'],
   TaskTemplateManager: ['admin']

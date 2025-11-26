@@ -1,0 +1,261 @@
+extends ../layouts/dashboard
+
+block content
+  .mb-6.flex.items-center.justify-between
+    div
+      h2.text-xl.font-semibold User Management
+      p.text-gray-600.text-sm Manage user accounts and permissions (RBAC)
+
+    a.px-4.py-2.bg-blue-600.text-white.rounded(
+      href="/dashboard/profile"
+      class="hover:bg-blue-700"
+    ) My Profile
+
+  div(x-data="userManager()")
+    //- Users Summary
+    .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Total Users
+        .text-2xl.font-bold= users.length
+
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Admins
+        .text-2xl.font-bold.text-blue-600= users.filter(u => u.role === 'admin').length
+
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Regular Users
+        .text-2xl.font-bold.text-green-600= users.filter(u => u.role === 'user').length
+
+    //- Users Table (full width with padding)
+    .bg-white.rounded-lg.shadow.overflow-hidden.py-6
+      .overflow-x-auto.px-6
+        table.min-w-full.divide-y.divide-gray-200
+          thead.bg-gray-50
+            tr
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Username
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Email
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Role
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Last Login
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Status
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Actions
+
+          tbody.bg-white.divide-y.divide-gray-200
+            if users.length === 0
+              tr
+                td.px-6.py-4.text-center.text-gray-500(colspan="6") No users found
+            else
+              each user in users
+                tr
+                  td.px-6.py-4.whitespace-nowrap
+                    .flex.items-center.gap-2
+                      if user.profilePicture
+                        img.w-8.h-8.rounded-full(src=user.profilePicture alt=user.username)
+                      else
+                        .w-8.h-8.rounded-full.bg-gray-300.flex.items-center.justify-center.text-gray-600.font-semibold= user.username.charAt(0).toUpperCase()
+                      .font-medium.text-gray-900= user.username
+
+                  td.px-6.py-4.whitespace-nowrap
+                    .text-sm.text-gray-600= user.email || 'No email'
+
+                  td.px-6.py-4.whitespace-nowrap
+                    if user.role === 'admin'
+                      span.px-2.py-1.text-xs.rounded.bg-purple-100.text-purple-800 Admin
+                    else
+                      span.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800 User
+
+                  td.px-6.py-4.whitespace-nowrap
+                    if user.lastLogin
+                      .text-sm.text-gray-600= new Date(user.lastLogin._seconds * 1000).toLocaleDateString()
+                    else
+                      .text-sm.text-gray-500 Never
+
+                  td.px-6.py-4.whitespace-nowrap
+                    if user.locked
+                      span.px-2.py-1.text-xs.rounded.bg-red-100.text-red-800 Locked
+                    else
+                      span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Active
+
+                  td.px-6.py-4.whitespace-nowrap.text-sm.font-medium
+                    .flex.gap-2
+                      button.text-blue-600(
+                        @click=`editUser('${user.id}')`
+                        class="hover:text-blue-900"
+                      ) Edit
+                      button.text-purple-600(
+                        @click=`resetPassword('${user.id}')`
+                        class="hover:text-purple-900"
+                      ) Reset Password
+                      if user.role === 'user'
+                        button.text-green-600(
+                          @click=`promoteToAdmin('${user.id}')`
+                          class="hover:text-green-900"
+                        ) Promote
+                      if user.locked
+                        button.text-green-600(
+                          @click=`unlockUser('${user.id}')`
+                          class="hover:text-green-900"
+                        ) Unlock
+                      else
+                        button.text-red-600(
+                          @click=`lockUser('${user.id}')`
+                          class="hover:text-red-900"
+                        ) Lock
+
+    //- Edit User Modal
+    div(x-show="showEditModal" x-cloak style="display: none;")
+      .fixed.inset-0.bg-gray-500.bg-opacity-75.flex.items-center.justify-center.z-50
+        .bg-white.rounded-lg.shadow-xl.max-w-md.w-full.p-6
+          h3.text-lg.font-semibold.mb-4 Edit User
+          form(@submit.prevent="saveUser()")
+            .mb-4
+              label.block.text-sm.font-medium.text-gray-700.mb-2 Email
+              input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+                type="email"
+                x-model="editingUser.email"
+                required
+              )
+            .mb-4
+              label.block.text-sm.font-medium.text-gray-700.mb-2 Role
+              select.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+                x-model="editingUser.role"
+              )
+                option(value="user") User
+                option(value="admin") Admin
+            .flex.gap-2.justify-end
+              button.px-4.py-2.bg-gray-600.text-white.rounded(
+                type="button"
+                @click="showEditModal = false"
+                class="hover:bg-gray-700"
+              ) Cancel
+              button.px-4.py-2.bg-blue-600.text-white.rounded(
+                type="submit"
+                class="hover:bg-blue-700"
+              ) Save Changes
+
+    //- Alpine.js User Manager
+    script.
+      function userManager() {
+        return {
+          showEditModal: false,
+          editingUser: { id: '', email: '', role: '' },
+
+          async editUser(userId) {
+            const response = await fetch(`/dashboard/api/users/${userId}`, {
+              headers: { 'X-CSRF-Token': window.csrfToken }
+            });
+            if (response.ok) {
+              const user = await response.json();
+              this.editingUser = {
+                id: userId,
+                email: user.email || '',
+                role: user.role
+              };
+              this.showEditModal = true;
+            }
+          },
+
+          async saveUser() {
+            const response = await fetch(`/dashboard/api/users/${this.editingUser.id}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                email: this.editingUser.email,
+                role: this.editingUser.role
+              })
+            });
+
+            if (response.ok) {
+              alert('User updated successfully!');
+              window.location.reload();
+            } else {
+              const error = await response.json();
+              alert(`Error: ${error.error}`);
+            }
+          },
+
+          async resetPassword(userId) {
+            if (!confirm('Are you sure you want to reset this user\'s password? A new temporary password will be generated.')) {
+              return;
+            }
+
+            const response = await fetch(`/dashboard/api/users/${userId}/reset-password`, {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': window.csrfToken }
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              alert(`Password reset! New temporary password: ${data.tempPassword}\n\nPlease share this with the user securely.`);
+            } else {
+              const error = await response.json();
+              alert(`Error: ${error.error}`);
+            }
+          },
+
+          async promoteToAdmin(userId) {
+            if (!confirm('Are you sure you want to promote this user to admin?')) {
+              return;
+            }
+
+            const response = await fetch(`/dashboard/api/users/${userId}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({ role: 'admin' })
+            });
+
+            if (response.ok) {
+              alert('User promoted to admin!');
+              window.location.reload();
+            } else {
+              const error = await response.json();
+              alert(`Error: ${error.error}`);
+            }
+          },
+
+          async lockUser(userId) {
+            if (!confirm('Are you sure you want to lock this user account?')) {
+              return;
+            }
+
+            const response = await fetch(`/dashboard/api/users/${userId}/lock`, {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': window.csrfToken }
+            });
+
+            if (response.ok) {
+              alert('User locked successfully!');
+              window.location.reload();
+            } else {
+              const error = await response.json();
+              alert(`Error: ${error.error}`);
+            }
+          },
+
+          async unlockUser(userId) {
+            const response = await fetch(`/dashboard/api/users/${userId}/unlock`, {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': window.csrfToken }
+            });
+
+            if (response.ok) {
+              alert('User unlocked successfully!');
+              window.location.reload();
+            } else {
+              const error = await response.json();
+              alert(`Error: ${error.error}`);
+            }
+          }
+        }
+      }

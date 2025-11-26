@@ -1,0 +1,161 @@
+extends ../layouts/dashboard
+
+block content
+  //- Knowledge Base Edit Form
+  div(x-data="editController()")
+    .mb-6.flex.items-center.justify-between
+      div
+        h2.text-xl.font-semibold Edit Knowledge Entry
+        p.text-gray-600.text-sm Modify knowledge base document
+
+      .flex.gap-2
+        a.px-4.py-2.bg-gray-600.text-white.rounded(
+          href="/dashboard/knowledge"
+          class="hover:bg-gray-700"
+        ) Cancel
+
+        button.px-4.py-2.bg-blue-600.text-white.rounded(
+          @click="saveEntry()"
+          :disabled="saving"
+          class="hover:bg-blue-700 disabled:opacity-50"
+        )
+          span(x-show="!saving") Save Changes
+          span(x-show="saving") Saving...
+
+    //- Edit Form
+    .bg-white.rounded-lg.shadow.p-6
+      form(@submit.prevent="saveEntry()")
+        //- Title
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Title
+          input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+            type="text"
+            x-model="entry.title"
+            required
+            maxlength="200"
+            placeholder="Entry title"
+            class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          )
+
+        //- Category and Priority Row
+        .grid.grid-cols-1.gap-4.mb-4(class="md:grid-cols-2")
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Category
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+              x-model="entry.category"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              option(value="general") General
+              option(value="hr") HR
+              option(value="it") IT
+              option(value="policies") Policies
+              option(value="processes") Processes
+              option(value="api") API
+              option(value="security") Security
+              option(value="compliance") Compliance
+              each category in categories
+                option(value=category)= category
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Priority
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+              type="number"
+              x-model.number="entry.priority"
+              min="0"
+              max="100"
+              step="10"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 0-100 (higher = more important)
+
+        //- Content (Markdown)
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Content
+          textarea.w-full.px-3.py-2.border.border-gray-300.rounded-md.font-mono.text-sm(
+            x-model="entry.content"
+            rows="20"
+            required
+            placeholder="Markdown content..."
+            class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          )
+          p.text-xs.text-gray-500.mt-1 Supports Markdown formatting
+
+        //- Tags
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Tags
+          input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+            type="text"
+            x-model="tagsInput"
+            placeholder="tag1, tag2, tag3"
+            class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          )
+          p.text-xs.text-gray-500.mt-1 Comma-separated tags for search
+
+        //- Enabled Toggle
+        .mb-4
+          label.flex.items-center
+            input.mr-2(
+              type="checkbox"
+              x-model="entry.enabled"
+            )
+            span.text-sm.font-medium.text-gray-700 Enabled (visible to AI)
+
+  //- Alpine.js Controller
+  script.
+    function editController() {
+      return {
+        entry: !{JSON.stringify(entry)},
+        tagsInput: !{JSON.stringify((entry.tags || []).join(', '))},
+        saving: false,
+
+        async saveEntry() {
+          if (this.saving) return;
+
+          // Validate required fields
+          if (!this.entry.title || !this.entry.content) {
+            alert('Title and content are required');
+            return;
+          }
+
+          this.saving = true;
+
+          try {
+            // Parse tags from comma-separated input
+            const tags = this.tagsInput
+              .split(',')
+              .map(t => t.trim())
+              .filter(t => t.length > 0);
+
+            const updates = {
+              title: this.entry.title,
+              content: this.entry.content,
+              category: this.entry.category,
+              priority: this.entry.priority,
+              tags: tags,
+              enabled: this.entry.enabled
+            };
+
+            const response = await fetch(`/dashboard/api/knowledge/${this.entry.id}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify(updates)
+            });
+
+            if (response.ok) {
+              alert('Entry updated successfully!');
+              window.location.href = '/dashboard/knowledge';
+            } else {
+              const error = await response.json();
+              alert(`Error: ${error.error || 'Failed to update entry'}`);
+            }
+          } catch (error) {
+            alert(`Error: ${error.message}`);
+          } finally {
+            this.saving = false;
+          }
+        }
+      }
+    }

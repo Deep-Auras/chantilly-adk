@@ -112,7 +112,7 @@ describe('Bluesky Security Tests', () => {
 
   describe('OWASP LLM02: Sensitive Information Disclosure', () => {
     it('should encrypt JWT tokens before Firestore storage', () => {
-      process.env.BLUESKY_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
+      process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
 
       const encryption = new Encryption();
 
@@ -124,11 +124,11 @@ describe('Bluesky Security Tests', () => {
       expect(encrypted.iv).toBeDefined();
       expect(encrypted.authTag).toBeDefined();
 
-      delete process.env.BLUESKY_ENCRYPTION_KEY;
+      delete process.env.CREDENTIAL_ENCRYPTION_KEY;
     });
 
     it('should decrypt tokens correctly', () => {
-      process.env.BLUESKY_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
+      process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
 
       const encryption = new Encryption();
 
@@ -138,7 +138,7 @@ describe('Bluesky Security Tests', () => {
 
       expect(decrypted).toBe(original);
 
-      delete process.env.BLUESKY_ENCRYPTION_KEY;
+      delete process.env.CREDENTIAL_ENCRYPTION_KEY;
     });
 
     it('should not log sensitive data', async () => {
@@ -361,18 +361,18 @@ describe('Bluesky Security Tests', () => {
     });
 
     it('should use AES-256-GCM for token encryption', () => {
-      process.env.BLUESKY_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
+      process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
 
       const encryption = new Encryption();
 
       expect(encryption.algorithm).toBe('aes-256-gcm');
       expect(encryption.key.length).toBe(32); // 256 bits
 
-      delete process.env.BLUESKY_ENCRYPTION_KEY;
+      delete process.env.CREDENTIAL_ENCRYPTION_KEY;
     });
 
     it('should include authentication tag for GCM', () => {
-      process.env.BLUESKY_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
+      process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
 
       const encryption = new Encryption();
       const encrypted = encryption.encrypt('test data');
@@ -380,11 +380,11 @@ describe('Bluesky Security Tests', () => {
       expect(encrypted.authTag).toBeDefined();
       expect(encrypted.authTag.length).toBeGreaterThan(0);
 
-      delete process.env.BLUESKY_ENCRYPTION_KEY;
+      delete process.env.CREDENTIAL_ENCRYPTION_KEY;
     });
 
     it('should fail decryption if auth tag tampered', () => {
-      process.env.BLUESKY_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
+      process.env.CREDENTIAL_ENCRYPTION_KEY = Buffer.from('a'.repeat(32)).toString('base64');
 
       const encryption = new Encryption();
       const encrypted = encryption.encrypt('test data');
@@ -394,7 +394,7 @@ describe('Bluesky Security Tests', () => {
 
       expect(() => encryption.decrypt(encrypted)).toThrow();
 
-      delete process.env.BLUESKY_ENCRYPTION_KEY;
+      delete process.env.CREDENTIAL_ENCRYPTION_KEY;
     });
   });
 

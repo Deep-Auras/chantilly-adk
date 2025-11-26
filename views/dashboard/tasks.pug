@@ -1,0 +1,64 @@
+extends ../layouts/dashboard
+
+block content
+  .mb-6
+    h2.text-xl.font-semibold Complex Task Templates
+    p.text-gray-600.text-sm View and manage task templates with auto-repair
+
+  //- Templates Summary
+  .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Total Templates
+      .text-2xl.font-bold= templates.length
+
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm Enabled
+      .text-2xl.font-bold.text-green-600= templates.filter(t => t.enabled !== false).length
+
+    .bg-white.rounded-lg.shadow.p-4
+      .text-gray-500.text-sm With Auto-Repair
+      .text-2xl.font-bold.text-blue-600= templates.filter(t => t.autoRepair).length
+
+  //- Templates Table
+  .bg-white.rounded-lg.shadow.overflow-hidden
+    table.min-w-full.divide-y.divide-gray-200
+      thead.bg-gray-50
+        tr
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Template ID
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Description
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Category
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Auto-Repair
+          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            | Status
+
+      tbody.bg-white.divide-y.divide-gray-200
+        if templates.length === 0
+          tr
+            td.px-6.py-4.text-center.text-gray-500(colspan="5") No task templates found
+        else
+          each template in templates
+            tr
+              td.px-6.py-4.whitespace-nowrap
+                .font-medium.text-gray-900= template.id
+
+              td.px-6.py-4
+                .text-sm.text-gray-600= template.description || 'No description'
+
+              td.px-6.py-4.whitespace-nowrap
+                span.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800= template.category || 'general'
+
+              td.px-6.py-4.whitespace-nowrap
+                if template.autoRepair
+                  span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Enabled
+                else
+                  span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-800 Disabled
+
+              td.px-6.py-4.whitespace-nowrap
+                if template.enabled !== false
+                  span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Active
+                else
+                  span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-800 Inactive

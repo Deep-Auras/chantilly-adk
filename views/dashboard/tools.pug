@@ -1,0 +1,193 @@
+extends ../layouts/dashboard
+
+block content
+  //- CRITICAL: Single Alpine.js component wrapping entire page
+  div(
+    x-data="toolsController()"
+    x-init="init()"
+  )
+    .mb-6.flex.items-center.justify-between
+      div
+        h2.text-xl.font-semibold Tools Registry
+        p.text-gray-600.text-sm Manage custom tools and user access permissions
+
+      button.px-4.py-2.bg-blue-600.text-white.rounded(
+        @click="refreshTools()"
+        class="hover:bg-blue-700"
+      ) Refresh Tools
+
+    //- Tools Summary Cards
+    .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Total Tools
+        .text-2xl.font-bold(x-text="tools.length") 0
+
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Enabled
+        .text-2xl.font-bold.text-green-600(x-text="tools.filter(t => t.enabled).length") 0
+
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Disabled
+        .text-2xl.font-bold.text-gray-600(x-text="tools.filter(t => !t.enabled).length") 0
+
+    //- Filter by Access Level
+    .bg-white.rounded-lg.shadow.p-4.mb-6
+      .flex.items-center.gap-4
+        label.text-sm.font-medium.text-gray-700 Filter by Access:
+        select.px-3.py-2.border.border-gray-300.rounded-md(
+          x-model="filterAccess"
+          @change="filterTools()"
+        )
+          option(value="all") All Tools
+          option(value="user") User Accessible
+          option(value="admin") Admin Only
+
+        span.text-sm.text-gray-600(x-text="`Showing ${filteredTools.length} of ${tools.length} tools`")
+
+    //- Tools Table
+    .bg-white.rounded-lg.shadow.overflow-hidden
+      .overflow-x-auto
+        table.min-w-full.divide-y.divide-gray-200
+          thead.bg-gray-50
+            tr
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Tool Name
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Category
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Priority
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Status
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Access
+
+          tbody.bg-white.divide-y.divide-gray-200
+            template(x-for="tool in filteredTools" :key="tool.name")
+              tr
+                td.px-6.py-4(style="max-width: 200px;")
+                  .font-medium.text-gray-900(x-text="tool.name")
+                  .text-xs.text-gray-500(x-text="tool.description")
+
+                td.px-6.py-4.whitespace-nowrap
+                  span.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800(
+                    x-text="tool.category || 'general'"
+                  )
+
+                td.px-6.py-4.whitespace-nowrap
+                  span.text-sm.text-gray-900(x-text="tool.priority")
+
+                td.px-6.py-4.whitespace-nowrap
+                  label.relative.inline-flex.items-center.cursor-pointer
+                    input(
+                      type="checkbox"
+                      :checked="tool.enabled"
+                      @change="toggleEnabled(tool.name)"
+                      class="sr-only peer"
+                    )
+                    .w-11.h-6.bg-gray-200.rounded-full.peer(
+                      class="peer-focus:ring-4 peer-focus:ring-blue-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"
+                    )
+
+                td.px-6.py-4.whitespace-nowrap
+                  select.px-2.py-1.text-xs.border.rounded(
+                    :value="tool.access"
+                    @change="updateAccess(tool.name, $event.target.value)"
+                  )
+                    option(value="user,admin") All Users
+                    option(value="admin") Admin Only
+
+    //- Alpine.js Tools Controller
+    script.
+      function toolsController() {
+        return {
+          tools: !{JSON.stringify(tools || [])},
+          toolAccess: !{JSON.stringify(toolAccess || {})},
+          filteredTools: [],
+          filterAccess: 'all',
+
+          init() {
+            // Merge access control data with tools
+            this.tools = this.tools.map(tool => ({
+              ...tool,
+              access: this.getToolAccess(tool.name)
+            }));
+            this.filteredTools = this.tools;
+          },
+
+          getToolAccess(toolName) {
+            const roles = this.toolAccess[toolName] || ['admin'];
+            return roles.join(',');
+          },
+
+          filterTools() {
+            if (this.filterAccess === 'all') {
+              this.filteredTools = this.tools;
+            } else if (this.filterAccess === 'user') {
+              this.filteredTools = this.tools.filter(t => t.access.includes('user'));
+            } else {
+              this.filteredTools = this.tools.filter(t => t.access === 'admin');
+            }
+          },
+
+          async toggleEnabled(toolName) {
+            try {
+              const tool = this.tools.find(t => t.name === toolName);
+              const newState = !tool.enabled;
+
+              const response = await fetch(`/dashboard/api/tools/${toolName}/toggle`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': window.csrfToken
+                },
+                body: JSON.stringify({ enabled: newState })
+              });
+
+              if (response.ok) {
+                tool.enabled = newState;
+                this.filterTools();
+              } else {
+                const error = await response.json();
+                alert(`Error: ${error.message}`);
+              }
+            } catch (error) {
+              alert(`Error: ${error.message}`);
+            }
+          },
+
+          async updateAccess(toolName, access) {
+            try {
+              const roles = access.split(',');
+
+              const response = await fetch(`/dashboard/api/tools/${toolName}/access`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': window.csrfToken
+                },
+                body: JSON.stringify({ roles })
+              });
+
+              if (response.ok) {
+                const tool = this.tools.find(t => t.name === toolName);
+                tool.access = access;
+                this.filterTools();
+                alert('Access updated successfully!');
+              } else {
+                const error = await response.json();
+                alert(`Error: ${error.message}`);
+              }
+            } catch (error) {
+              alert(`Error: ${error.message}`);
+            }
+          },
+
+          async refreshTools() {
+            window.location.reload();
+          },
+
+          editTool(toolName) {
+            alert(`Tool editing coming soon: ${toolName}`);
+          }
+        }
+      }

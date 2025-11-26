@@ -1,0 +1,708 @@
+doctype html
+html(lang="en")
+  head
+    meta(charset="UTF-8")
+    meta(name="viewport" content="width=device-width, initial-scale=1.0")
+    title Chantilly ADK - First-Time Setup
+    link(rel="icon" type="image/x-icon" href="/favicon.ico")
+    script(defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js")
+    style.
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+      .container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        max-width: 600px;
+        width: 100%;
+        overflow: hidden;
+      }
+      .header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 40px 30px;
+        text-align: center;
+      }
+      .header h1 {
+        font-size: 32px;
+        margin-bottom: 10px;
+      }
+      .header p {
+        font-size: 16px;
+        opacity: 0.9;
+      }
+      .content {
+        padding: 40px 30px;
+      }
+      .step {
+        display: none;
+      }
+      .step.active {
+        display: block;
+        animation: fadeIn 0.3s ease-in;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .step-header {
+        margin-bottom: 30px;
+      }
+      .step-number {
+        display: inline-block;
+        width: 32px;
+        height: 32px;
+        background: #667eea;
+        color: white;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 32px;
+        font-weight: bold;
+        margin-right: 10px;
+      }
+      .step-title {
+        font-size: 24px;
+        color: #333;
+        display: inline-block;
+        vertical-align: middle;
+      }
+      .form-group {
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 8px;
+        color: #555;
+        font-weight: 500;
+      }
+      input[type="text"],
+      input[type="email"],
+      input[type="password"] {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+      }
+      input:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      .help-text {
+        font-size: 13px;
+        color: #888;
+        margin-top: 5px;
+      }
+      .error-text {
+        font-size: 13px;
+        color: #e53e3e;
+        margin-top: 5px;
+      }
+      .success-text {
+        font-size: 13px;
+        color: #38a169;
+        margin-top: 5px;
+      }
+      .button-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 30px;
+      }
+      button {
+        flex: 1;
+        padding: 14px 24px;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+      }
+      .btn-primary:hover:not(:disabled) {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+      }
+      .btn-secondary {
+        background: #f7fafc;
+        color: #4a5568;
+        border: 2px solid #e2e8f0;
+      }
+      .btn-secondary:hover:not(:disabled) {
+        background: #edf2f7;
+      }
+      .progress-bar {
+        height: 4px;
+        background: #e0e0e0;
+        position: relative;
+        margin-bottom: 40px;
+      }
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        transition: width 0.3s ease;
+      }
+      .info-box {
+        background: #ebf8ff;
+        border-left: 4px solid #4299e1;
+        padding: 15px;
+        margin: 20px 0;
+        border-radius: 4px;
+      }
+      .info-box p {
+        color: #2c5282;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .warning-box {
+        background: #fffaf0;
+        border-left: 4px solid #ed8936;
+        padding: 15px;
+        margin: 20px 0;
+        border-radius: 4px;
+      }
+      .warning-box p {
+        color: #7c2d12;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .success-screen {
+        text-align: center;
+        padding: 40px 20px;
+      }
+      .success-icon {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 20px;
+        background: #48bb78;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 48px;
+        color: white;
+      }
+      .credentials-box {
+        background: #f7fafc;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 30px 0;
+        text-align: left;
+      }
+      .credentials-box h3 {
+        color: #2d3748;
+        margin-bottom: 15px;
+      }
+      .credential-item {
+        padding: 10px;
+        background: white;
+        border-radius: 4px;
+        margin-bottom: 10px;
+        font-family: 'Courier New', monospace;
+      }
+      .credential-label {
+        font-size: 12px;
+        color: #718096;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .credential-value {
+        font-size: 16px;
+        color: #2d3748;
+        font-weight: 600;
+        margin-top: 5px;
+      }
+      .spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+  body
+    .container(x-data="setupWizard()" x-cloak)
+      .header
+        h1 🚀 Welcome to Chantilly ADK
+        p Your AI Agent Development Kit
+
+      .content
+        //- Progress Bar
+        .progress-bar
+          .progress-fill(:style="`width: ${(currentStep / totalSteps) * 100}%`")
+
+        //- Step 1: Welcome
+        .step(:class="{'active': currentStep === 1}")
+          .step-header
+            span.step-number 1
+            h2.step-title Welcome
+
+          p(style="margin-bottom: 20px; line-height: 1.6; color: #555;")
+            | This wizard will guide you through the initial setup of your Chantilly ADK instance.
+            | The process takes about 2-3 minutes.
+
+          .info-box
+            p
+              strong What you'll configure:
+              br
+              | • Admin user credentials
+              br
+              | • Agent identity
+              br
+              | • Gemini API key
+              br
+              | • Basic system configuration
+
+          .button-group
+            button.btn-primary(@click="nextStep()") Get Started →
+
+        //- Step 2: Admin User
+        .step(:class="{'active': currentStep === 2}")
+          .step-header
+            span.step-number 2
+            h2.step-title Create Admin User
+
+          .form-group
+            label(for="username") Username
+            input#username(
+              type="text"
+              x-model="formData.username"
+              placeholder="admin"
+              @input="validateUsername()"
+              minlength="3"
+              required
+            )
+            p.help-text(x-show="!errors.username") Minimum 3 characters
+            p.error-text(x-show="errors.username" x-text="errors.username")
+
+          .form-group
+            label(for="email") Email
+            input#email(
+              type="email"
+              x-model="formData.email"
+              placeholder="admin@example.com"
+              @input="validateEmail()"
+              required
+            )
+            p.help-text(x-show="!errors.email") Used for account recovery
+            p.error-text(x-show="errors.email" x-text="errors.email")
+
+          .form-group
+            label(for="password") Password
+            input#password(
+              type="password"
+              x-model="formData.password"
+              placeholder="Enter strong password"
+              @input="validatePassword()"
+              minlength="12"
+              required
+            )
+            p.help-text(x-show="!errors.password") Minimum 12 characters with mixed case, numbers, and symbols
+            p.error-text(x-show="errors.password" x-text="errors.password")
+
+          .form-group
+            label(for="confirmPassword") Confirm Password
+            input#confirmPassword(
+              type="password"
+              x-model="formData.confirmPassword"
+              placeholder="Re-enter password"
+              @input="validatePasswordMatch()"
+              required
+            )
+            p.error-text(x-show="errors.confirmPassword" x-text="errors.confirmPassword")
+            p.success-text(x-show="formData.password && formData.confirmPassword && !errors.confirmPassword") ✓ Passwords match
+
+          .button-group
+            button.btn-secondary(@click="prevStep()") ← Back
+            button.btn-primary(
+              @click="nextStep()"
+              :disabled="!isStep2Valid()"
+            ) Continue →
+
+        //- Step 3: Agent Configuration
+        .step(:class="{'active': currentStep === 3}")
+          .step-header
+            span.step-number 3
+            h2.step-title Configure Agent
+
+          .form-group
+            label(for="agentName") Agent Name
+            input#agentName(
+              type="text"
+              x-model="formData.agentName"
+              placeholder="Clementine"
+              @input="validateAgentName()"
+              required
+            )
+            p.help-text(x-show="!errors.agentName") This will be your agent's identity (e.g., "Clementine", "assistant", "bot")
+            p.error-text(x-show="errors.agentName" x-text="errors.agentName")
+
+          .info-box
+            p
+              strong Note:
+              | Platform integrations (Bitrix24, Google Chat, Asana, Bluesky) are disabled by default.
+              | You can enable and configure them after setup via the dashboard.
+
+          .button-group
+            button.btn-secondary(@click="prevStep()") ← Back
+            button.btn-primary(
+              @click="nextStep()"
+              :disabled="!isStep3Valid()"
+            ) Continue →
+
+        //- Step 4: API Configuration
+        .step(:class="{'active': currentStep === 4}")
+          .step-header
+            span.step-number 4
+            h2.step-title API Configuration
+
+          .form-group
+            label(for="geminiApiKey") Gemini API Key
+            input#geminiApiKey(
+              type="password"
+              x-model="formData.geminiApiKey"
+              placeholder="AIza..."
+              @input="validateGeminiApiKey()"
+              required
+            )
+            p.help-text(x-show="!errors.geminiApiKey")
+              | Get your API key from
+              a(href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #667eea;") Google AI Studio
+            p.error-text(x-show="errors.geminiApiKey" x-text="errors.geminiApiKey")
+
+          .form-group
+            label(for="geminiModel") Gemini Model
+            select#geminiModel(
+              x-model="formData.geminiModel"
+              style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;"
+              required
+            )
+              option(value="") Select a model...
+              optgroup(label="Latest Stable (Recommended)")
+              option(value="gemini-3-pro") Gemini 3 Pro - Most Advanced & Powerful
+              option(value="gemini-2.5-pro") Gemini 2.5 Pro - Very Capable
+              option(value="gemini-2.5-flash") Gemini 2.5 Flash - Fast & Efficient
+              option(value="gemini-2.5-flash-lite") Gemini 2.5 Flash Lite - Low Cost
+              optgroup(label="Preview/Experimental")
+              option(value="gemini-3-pro-preview") Gemini 3 Pro Preview - Bleeding Edge
+              option(value="gemini-2.5-flash-preview-09-2025") Gemini 2.5 Flash Preview
+              option(value="gemini-2.5-flash-lite-preview-09-2025") Gemini 2.5 Flash Lite Preview
+            p.help-text Choose the model that best fits your needs. Flash models are faster, Pro models are more capable. Gemini 3 is the latest generation.
+            p.error-text(x-show="errors.geminiModel" x-text="errors.geminiModel")
+
+          .info-box
+            p
+              strong About Gemini:
+              br
+              | Gemini powers the AI capabilities of your agent. Configuration is stored securely in Firestore
+              | and never exposed in logs or environment variables.
+
+          .button-group
+            button.btn-secondary(@click="prevStep()") ← Back
+            button.btn-primary(
+              @click="nextStep()"
+              :disabled="!isStep4Valid()"
+            ) Continue →
+
+        //- Step 5: Review & Confirm
+        .step(:class="{'active': currentStep === 5}")
+          .step-header
+            span.step-number 5
+            h2.step-title Review Configuration
+
+          .credentials-box
+            h3 Admin User
+            .credential-item
+              .credential-label Username
+              .credential-value(x-text="formData.username")
+            .credential-item
+              .credential-label Email
+              .credential-value(x-text="formData.email")
+
+            h3(style="margin-top: 20px;") Agent
+            .credential-item
+              .credential-label Agent Name
+              .credential-value(x-text="formData.agentName")
+
+          .warning-box
+            p
+              strong ⚠️ Important:
+              | Save your admin credentials securely. You'll need them to log in to the dashboard.
+
+          .button-group
+            button.btn-secondary(@click="prevStep()") ← Back
+            button.btn-primary(
+              @click="submitSetup()"
+              :disabled="isSubmitting"
+            )
+              span(x-show="!isSubmitting") Complete Setup
+              span(x-show="isSubmitting")
+                span.spinner(style="margin-right: 8px;")
+                | Setting up...
+
+        //- Step 6: Success
+        .step(:class="{'active': currentStep === 6}")
+          .success-screen
+            .success-icon ✓
+            h2(style="color: #38a169; margin-bottom: 10px;") Setup Complete!
+            p(style="color: #555; margin-bottom: 30px;") Your Chantilly ADK instance is ready to use.
+
+            .credentials-box
+              h3 🔐 Your Admin Credentials
+              p(style="font-size: 13px; color: #718096; margin-bottom: 15px;") Save these credentials - you'll need them to access the dashboard
+
+              .credential-item
+                .credential-label Username
+                .credential-value(x-text="formData.username")
+              .credential-item
+                .credential-label Password
+                .credential-value ••••••••••••
+
+            .info-box
+              p
+                strong Next Steps:
+                br
+                | 1. You'll be redirected to the login page in a few seconds
+                br
+                | 2. Log in with your admin credentials
+                br
+                | 3. Configure platform integrations in Settings
+                br
+                | 4. Deploy Firestore indexes (see documentation)
+
+            button.btn-primary(
+              @click="redirectToDashboard()"
+              style="margin-top: 30px;"
+            ) Go to Dashboard →
+
+    script.
+      function setupWizard() {
+        return {
+          currentStep: 1,
+          totalSteps: 6,
+          isSubmitting: false,
+          formData: {
+            username: '',
+            email: '',
+            password: '',
+            confirmPassword: '',
+            agentName: 'Clementine',
+            geminiApiKey: '',
+            geminiModel: ''
+          },
+          errors: {
+            username: '',
+            email: '',
+            password: '',
+            confirmPassword: '',
+            agentName: '',
+            geminiApiKey: '',
+            geminiModel: ''
+          },
+
+          nextStep() {
+            if (this.currentStep < this.totalSteps) {
+              this.currentStep++;
+            }
+          },
+
+          prevStep() {
+            if (this.currentStep > 1) {
+              this.currentStep--;
+            }
+          },
+
+          validateUsername() {
+            this.errors.username = '';
+
+            if (!this.formData.username) {
+              return;
+            }
+
+            if (this.formData.username.length < 3) {
+              this.errors.username = 'Username must be at least 3 characters';
+            } else if (!/^[a-zA-Z0-9_-]+$/.test(this.formData.username)) {
+              this.errors.username = 'Username can only contain letters, numbers, hyphens, and underscores';
+            }
+          },
+
+          validateEmail() {
+            this.errors.email = '';
+
+            if (!this.formData.email) {
+              return;
+            }
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(this.formData.email)) {
+              this.errors.email = 'Please enter a valid email address';
+            }
+          },
+
+          validatePassword() {
+            this.errors.password = '';
+
+            if (!this.formData.password) {
+              return;
+            }
+
+            if (this.formData.password.length < 12) {
+              this.errors.password = 'Password must be at least 12 characters';
+              return;
+            }
+
+            const hasLower = /[a-z]/.test(this.formData.password);
+            const hasUpper = /[A-Z]/.test(this.formData.password);
+            const hasNumber = /\d/.test(this.formData.password);
+            const hasSpecial = /[^a-zA-Z\d]/.test(this.formData.password);
+
+            const categoryCount = [hasLower, hasUpper, hasNumber, hasSpecial].filter(Boolean).length;
+
+            if (categoryCount < 3) {
+              this.errors.password = 'Password must contain at least 3 of: lowercase, uppercase, numbers, special characters';
+            }
+
+            // Re-validate password match if confirmPassword is filled
+            if (this.formData.confirmPassword) {
+              this.validatePasswordMatch();
+            }
+          },
+
+          validatePasswordMatch() {
+            this.errors.confirmPassword = '';
+
+            if (!this.formData.confirmPassword) {
+              return;
+            }
+
+            if (this.formData.password !== this.formData.confirmPassword) {
+              this.errors.confirmPassword = 'Passwords do not match';
+            }
+          },
+
+          validateAgentName() {
+            this.errors.agentName = '';
+
+            if (!this.formData.agentName) {
+              this.errors.agentName = 'Agent name is required';
+            } else if (this.formData.agentName.length < 2) {
+              this.errors.agentName = 'Agent name must be at least 2 characters';
+            } else if (!/^[a-zA-Z0-9_-]+$/.test(this.formData.agentName)) {
+              this.errors.agentName = 'Agent name can only contain letters, numbers, hyphens, and underscores';
+            }
+          },
+
+          isStep2Valid() {
+            return this.formData.username &&
+                   this.formData.email &&
+                   this.formData.password &&
+                   this.formData.confirmPassword &&
+                   !this.errors.username &&
+                   !this.errors.email &&
+                   !this.errors.password &&
+                   !this.errors.confirmPassword;
+          },
+
+          isStep3Valid() {
+            return this.formData.agentName && !this.errors.agentName;
+          },
+
+          validateGeminiApiKey() {
+            this.errors.geminiApiKey = '';
+
+            if (!this.formData.geminiApiKey) {
+              return;
+            }
+
+            // Basic validation - Gemini API keys start with "AIza"
+            if (!this.formData.geminiApiKey.startsWith('AIza')) {
+              this.errors.geminiApiKey = 'Invalid Gemini API key format (should start with AIza)';
+            } else if (this.formData.geminiApiKey.length < 39) {
+              this.errors.geminiApiKey = 'API key appears to be incomplete';
+            }
+          },
+
+          validateGeminiModel() {
+            this.errors.geminiModel = '';
+
+            if (!this.formData.geminiModel) {
+              this.errors.geminiModel = 'Please select a Gemini model';
+            }
+          },
+
+          isStep4Valid() {
+            return this.formData.geminiApiKey &&
+                   this.formData.geminiModel &&
+                   !this.errors.geminiApiKey &&
+                   !this.errors.geminiModel;
+          },
+
+          async submitSetup() {
+            this.isSubmitting = true;
+
+            try {
+              const response = await fetch('/setup/complete', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  username: this.formData.username,
+                  email: this.formData.email,
+                  password: this.formData.password,
+                  agentName: this.formData.agentName,
+                  geminiApiKey: this.formData.geminiApiKey,
+                  geminiModel: this.formData.geminiModel
+                })
+              });
+
+              if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.message || 'Setup failed');
+              }
+
+              // Move to success step
+              this.currentStep = 6;
+
+              // Auto-redirect after 5 seconds
+              setTimeout(() => {
+                this.redirectToDashboard();
+              }, 5000);
+
+            } catch (error) {
+              alert('Setup failed: ' + error.message);
+              this.isSubmitting = false;
+            }
+          },
+
+          redirectToDashboard() {
+            window.location.href = '/auth/login';
+          }
+        };
+      }

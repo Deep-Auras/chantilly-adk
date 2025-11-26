@@ -1,16 +1,18 @@
 const winston = require('winston');
 const config = require('../config/env');
 
-// Create base logger configuration
+// Create base logger configuration with defaults
+// LOG_LEVEL and SERVICE_NAME can be optionally set via env vars
+// but have sensible defaults for zero-config deployment
 const loggerConfig = {
-  level: config.LOG_LEVEL,
+  level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.errors({ stack: true }),
     winston.format.json()
   ),
   defaultMeta: {
-    service: config.SERVICE_NAME,
+    service: process.env.SERVICE_NAME || 'chantilly-agent',
     environment: config.NODE_ENV
   },
   transports: []
@@ -35,13 +37,14 @@ if (config.NODE_ENV !== 'production') {
   );
 }
 
-// Add Cloud Logging transport if enabled
-if (config.USE_CLOUD_LOGGING && config.NODE_ENV === 'production') {
+// Add Cloud Logging transport if enabled (optional env var, defaults to enabled in production)
+const useCloudLogging = process.env.USE_CLOUD_LOGGING !== 'false'; // Default true
+if (useCloudLogging && config.NODE_ENV === 'production') {
   const { LoggingWinston } = require('@google-cloud/logging-winston');
   loggerConfig.transports.push(new LoggingWinston({
     projectId: config.GOOGLE_CLOUD_PROJECT,
     labels: {
-      service: config.SERVICE_NAME,
+      service: process.env.SERVICE_NAME || 'chantilly-agent',
       version: '1.0.0'
     }
   }));

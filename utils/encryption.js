@@ -2,7 +2,8 @@
  * Encryption Utilities
  *
  * Provides AES-256-GCM encryption/decryption for sensitive data storage.
- * Used for encrypting Bluesky JWT tokens before storing in Firestore.
+ * Used for encrypting all credentials: Bluesky JWT tokens, platform API keys,
+ * webhook URLs, service account credentials, etc.
  *
  * Security:
  * - AES-256-GCM authenticated encryption (prevents tampering)
@@ -23,9 +24,9 @@ class Encryption {
     this.algorithm = 'aes-256-gcm';
 
     // Load encryption key from environment
-    const keyBase64 = process.env.BLUESKY_ENCRYPTION_KEY;
+    const keyBase64 = process.env.CREDENTIAL_ENCRYPTION_KEY;
     if (!keyBase64) {
-      logger.warn('BLUESKY_ENCRYPTION_KEY not set, encryption disabled');
+      logger.warn('CREDENTIAL_ENCRYPTION_KEY not set, encryption disabled');
       this.key = null;
     } else {
       try {
@@ -61,7 +62,7 @@ class Encryption {
    */
   encrypt(text) {
     if (!this.isEnabled()) {
-      throw new Error('Encryption key not configured. Set BLUESKY_ENCRYPTION_KEY environment variable.');
+      throw new Error('Encryption key not configured. Set CREDENTIAL_ENCRYPTION_KEY environment variable.');
     }
 
     if (!text || typeof text !== 'string') {
@@ -105,7 +106,7 @@ class Encryption {
    */
   decrypt(encryptedData) {
     if (!this.isEnabled()) {
-      throw new Error('Encryption key not configured. Set BLUESKY_ENCRYPTION_KEY environment variable.');
+      throw new Error('Encryption key not configured. Set CREDENTIAL_ENCRYPTION_KEY environment variable.');
     }
 
     if (!encryptedData || typeof encryptedData !== 'object') {
@@ -142,12 +143,57 @@ class Encryption {
 
   /**
    * Generate a new encryption key (32 bytes base64-encoded)
-   * Use this to generate BLUESKY_ENCRYPTION_KEY value
+   * Use this to generate CREDENTIAL_ENCRYPTION_KEY value
    *
    * @returns {string} Base64-encoded 32-byte key
    */
   static generateKey() {
     return crypto.randomBytes(32).toString('base64');
+  }
+
+  /**
+   * Encrypt credential for dashboard storage
+   * Returns string format: "encrypted:AES256:iv:authTag:ciphertext"
+   *
+   * @param {string} plaintext - Credential to encrypt
+   * @returns {string} Encrypted credential string
+   */
+  encryptCredential(plaintext) {
+    if (!plaintext || typeof plaintext !== 'string') {
+      throw new Error('Credential must be a non-empty string');
+    }
+
+    const { encrypted, iv, authTag } = this.encrypt(plaintext);
+    return `encrypted:AES256:${iv}:${authTag}:${encrypted}`;
+  }
+
+  /**
+   * Decrypt credential from dashboard storage
+   * Accepts string format: "encrypted:AES256:iv:authTag:ciphertext"
+   *
+   * @param {string} encryptedString - Encrypted credential string
+   * @returns {string} Decrypted plaintext
+   */
+  decryptCredential(encryptedString) {
+    if (!encryptedString || typeof encryptedString !== 'string') {
+      throw new Error('Encrypted credential must be a non-empty string');
+    }
+
+    // Check if it's encrypted
+    if (!encryptedString.startsWith('encrypted:AES256:')) {
+      // Not encrypted, return as-is (for backward compatibility)
+      return encryptedString;
+    }
+
+    // Parse format: encrypted:AES256:iv:authTag:ciphertext
+    const parts = encryptedString.split(':');
+    if (parts.length !== 5) {
+      throw new Error('Invalid encrypted credential format');
+    }
+
+    const [, , iv, authTag, encrypted] = parts;
+
+    return this.decrypt({ encrypted, iv, authTag });
   }
 }
 

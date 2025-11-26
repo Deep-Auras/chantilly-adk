@@ -2,23 +2,17 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
-const config = require('../config/env');
 
 // Bcrypt work factor (2025 OWASP recommendation: 12-14 rounds)
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
 
-// JWT_SECRET is REQUIRED - never auto-generate (causes session loss on restart)
-const JWT_SECRET = process.env.JWT_SECRET;
+// JWT configuration loaded from Firestore
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-
-// Fail fast if JWT_SECRET is missing
-if (!JWT_SECRET) {
-  throw new Error('CRITICAL: JWT_SECRET environment variable is required. Generate with: openssl rand -hex 64');
-}
 
 class AuthService {
   constructor() {
     this.db = null;
+    this.jwtSecret = null;
     this.initialized = false;
   }
 
@@ -27,11 +21,32 @@ class AuthService {
 
     this.db = getFirestore();
 
+    // Load JWT_SECRET from Firestore (setup wizard stores it there)
+    await this.loadJwtSecret();
+
     // Create default admin user if doesn't exist
     await this.createDefaultAdmin();
 
     this.initialized = true;
     logger.info('Auth service initialized');
+  }
+
+  async loadJwtSecret() {
+    try {
+      const configDoc = await this.db.collection('agent').doc('config').get();
+
+      if (!configDoc.exists || !configDoc.data().jwtSecret) {
+        throw new Error('JWT_SECRET not found in Firestore. Please run setup wizard at /setup');
+      }
+
+      this.jwtSecret = configDoc.data().jwtSecret;
+      logger.info('JWT secret loaded from Firestore');
+    } catch (error) {
+      logger.error('Failed to load JWT secret from Firestore', {
+        error: error.message
+      });
+      throw new Error('JWT_SECRET not configured. Please run setup wizard at /setup');
+    }
   }
 
   async createDefaultAdmin() {
@@ -67,6 +82,7 @@ class AuthService {
       const userDoc = await this.db.collection('users').doc(username).get();
 
       if (!userDoc.exists) {
+        logger.warn('User not found', { username });
         return {
           success: false,
           error: 'Invalid credentials'
@@ -75,8 +91,20 @@ class AuthService {
 
       const userData = userDoc.data();
 
+      // CRITICAL DEBUG: Log user data structure
+      logger.info('AUTH DEBUG - User data loaded', {
+        username,
+        hasPassword: !!userData.password,
+        passwordLength: userData.password ? userData.password.length : 0,
+        passwordPrefix: userData.password ? userData.password.substring(0, 10) : 'none',
+        locked: userData.locked,
+        failedAttempts: userData.failedAttempts,
+        inputPasswordLength: password ? password.length : 0
+      });
+
       // Check if account is locked
       if (userData.locked) {
+        logger.warn('Account is locked', { username });
         return {
           success: false,
           error: 'Account is locked. Contact administrator.'
@@ -84,9 +112,12 @@ class AuthService {
       }
 
       // Verify password
+      logger.info('AUTH DEBUG - About to compare passwords', { username });
       const isValid = await bcrypt.compare(password, userData.password);
+      logger.info('AUTH DEBUG - Password comparison result', { username, isValid });
 
       if (!isValid) {
+        logger.warn('Invalid password', { username });
         // Increment failed attempts
         await this.incrementFailedAttempts(username, userData.failedAttempts);
 
@@ -103,13 +134,15 @@ class AuthService {
       });
 
       // Generate JWT token
+      // CRITICAL: Include 'id' field (username is the document ID in Firestore)
       const token = jwt.sign(
         {
+          id: username, // Firestore document ID
           username: userData.username,
           email: userData.email,
           role: userData.role
         },
-        JWT_SECRET,
+        this.jwtSecret,
         { expiresIn: JWT_EXPIRES_IN }
       );
 
@@ -194,7 +227,7 @@ class AuthService {
 
   async verifyToken(token) {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, this.jwtSecret);
       return {
         valid: true,
         user: decoded
@@ -343,6 +376,5 @@ function getAuthService() {
 module.exports = {
   AuthService,
   initializeAuthService,
-  getAuthService,
-  JWT_SECRET
+  getAuthService
 };

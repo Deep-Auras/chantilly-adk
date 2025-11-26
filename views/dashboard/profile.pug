@@ -1,0 +1,279 @@
+extends ../layouts/dashboard
+
+block content
+  div(x-data="profileController()" x-init="init()")
+    .mb-6
+      div
+        h2.text-xl.font-semibold My Profile
+        p.text-gray-600.text-sm Manage your account settings and preferences
+
+    //- Profile Information Card
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      .flex.items-center.gap-4.mb-6
+        //- Profile Picture
+        if user.profilePicture
+          img.w-20.h-20.rounded-full(src=user.profilePicture alt=user.username)
+        else
+          .w-20.h-20.rounded-full.bg-gray-300.flex.items-center.justify-center.text-gray-600.font-semibold.text-2xl= user.username.charAt(0).toUpperCase()
+
+        div
+          .text-xl.font-semibold= user.username
+          .text-sm.text-gray-600= user.role === 'admin' ? 'Administrator' : 'User'
+          .text-xs.text-gray-500 Member since #{user.createdAt ? new Date(user.createdAt._seconds * 1000).toLocaleDateString() : 'Unknown'}
+
+      //- Profile Stats
+      .grid.grid-cols-1.gap-4(class="md:grid-cols-2")
+        .bg-gray-50.rounded.p-4
+          .text-sm.text-gray-500 Last Login
+          .text-lg.font-semibold= user.lastLogin ? new Date(user.lastLogin._seconds * 1000).toLocaleString() : 'Never'
+
+        .bg-gray-50.rounded.p-4
+          .text-sm.text-gray-500 Account Status
+          .text-lg.font-semibold.text-green-600 Active
+
+    //- Update Profile Picture
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h3.text-lg.font-semibold.mb-4 Profile Picture
+
+      form(@submit.prevent="updateProfilePicture()")
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Picture URL
+          input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+            type="url"
+            x-model="profilePictureUrl"
+            placeholder="https://example.com/avatar.jpg"
+          )
+          p.text-xs.text-gray-500.mt-1 Enter a URL to an image (HTTPS recommended)
+
+        //- Preview
+        .mb-4(x-show="profilePictureUrl")
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Preview
+          img.w-20.h-20.rounded-full.border.border-gray-300(
+            :src="profilePictureUrl"
+            @error="profilePictureError = true"
+            x-show="!profilePictureError"
+          )
+          p.text-xs.text-red-500(x-show="profilePictureError") Failed to load image preview
+
+        button.px-4.py-2.bg-blue-600.text-white.rounded(
+          type="submit"
+          class="hover:bg-blue-700"
+          :disabled="pictureLoading"
+        )
+          span(x-show="!pictureLoading") Update Picture
+          span(x-show="pictureLoading") Updating...
+
+    //- Update Email
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h3.text-lg.font-semibold.mb-4 Email Address
+
+      form(@submit.prevent="updateEmail()")
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Current Email
+          input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+            type="email"
+            x-model="email"
+            placeholder="your.email@example.com"
+          )
+
+        button.px-4.py-2.bg-blue-600.text-white.rounded(
+          type="submit"
+          class="hover:bg-blue-700"
+          :disabled="emailLoading"
+        )
+          span(x-show="!emailLoading") Update Email
+          span(x-show="emailLoading") Updating...
+
+    //- Change Password
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h3.text-lg.font-semibold.mb-4 Change Password
+
+      form(@submit.prevent="changePassword()")
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Current Password
+          input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+            type="password"
+            x-model="currentPassword"
+            placeholder="Enter current password"
+            required
+          )
+
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 New Password
+          input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+            type="password"
+            x-model="newPassword"
+            placeholder="Enter new password (min 8 characters)"
+            required
+          )
+          p.text-xs.text-gray-500.mt-1 Password must be at least 8 characters long
+
+        .mb-4
+          label.block.text-sm.font-medium.text-gray-700.mb-2 Confirm New Password
+          input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+            type="password"
+            x-model="confirmPassword"
+            placeholder="Re-enter new password"
+            required
+          )
+
+        button.px-4.py-2.bg-blue-600.text-white.rounded(
+          type="submit"
+          class="hover:bg-blue-700"
+          :disabled="passwordLoading"
+        )
+          span(x-show="!passwordLoading") Change Password
+          span(x-show="passwordLoading") Changing...
+
+  //- Alpine.js Controller
+  script.
+    function profileController() {
+      return {
+        email: '!{user.email}',
+        profilePictureUrl: '!{user.profilePicture || ""}',
+        profilePictureError: false,
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+        emailLoading: false,
+        passwordLoading: false,
+        pictureLoading: false,
+
+        init() {
+          // Initialize with user's current email and profile picture
+        },
+
+        async updateProfilePicture() {
+          if (!this.profilePictureUrl) {
+            alert('Please enter a profile picture URL');
+            return;
+          }
+
+          // Basic URL validation
+          try {
+            new URL(this.profilePictureUrl);
+          } catch (e) {
+            alert('Please enter a valid URL');
+            return;
+          }
+
+          this.pictureLoading = true;
+          this.profilePictureError = false;
+
+          try {
+            const response = await fetch('/dashboard/api/profile', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                profilePicture: this.profilePictureUrl
+              })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+              alert('Profile picture updated successfully! Refresh the page to see changes.');
+            } else {
+              alert(`Error: ${data.error}`);
+            }
+          } catch (error) {
+            alert(`Error: ${error.message}`);
+          } finally {
+            this.pictureLoading = false;
+          }
+        },
+
+        async updateEmail() {
+          if (!this.email) {
+            alert('Please enter an email address');
+            return;
+          }
+
+          // Email format validation
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(this.email)) {
+            alert('Please enter a valid email address');
+            return;
+          }
+
+          this.emailLoading = true;
+
+          try {
+            const response = await fetch('/dashboard/api/profile', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                email: this.email
+              })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+              alert('Email updated successfully!');
+            } else {
+              alert(`Error: ${data.error}`);
+            }
+          } catch (error) {
+            alert(`Error: ${error.message}`);
+          } finally {
+            this.emailLoading = false;
+          }
+        },
+
+        async changePassword() {
+          if (!this.currentPassword || !this.newPassword || !this.confirmPassword) {
+            alert('Please fill in all password fields');
+            return;
+          }
+
+          if (this.newPassword.length < 8) {
+            alert('New password must be at least 8 characters long');
+            return;
+          }
+
+          if (this.newPassword !== this.confirmPassword) {
+            alert('New passwords do not match');
+            return;
+          }
+
+          this.passwordLoading = true;
+
+          try {
+            const response = await fetch('/dashboard/api/profile', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                currentPassword: this.currentPassword,
+                newPassword: this.newPassword
+              })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+              alert('Password changed successfully!');
+              // Clear password fields
+              this.currentPassword = '';
+              this.newPassword = '';
+              this.confirmPassword = '';
+            } else {
+              alert(`Error: ${data.error}`);
+            }
+          } catch (error) {
+            alert(`Error: ${error.message}`);
+          } finally {
+            this.passwordLoading = false;
+          }
+        }
+      }
+    }

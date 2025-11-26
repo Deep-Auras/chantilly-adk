@@ -1,0 +1,288 @@
+extends ../layouts/dashboard
+
+block content
+  //- Page Header
+  .mb-8
+    .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
+      div
+        h1.text-3xl.font-bold.text-gray-900 Platform Integrations
+        p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, Asana, and Bluesky integrations
+
+  //- Platform Cards (Alpine.js reactive)
+  div(x-data="platformsManager()")
+    .grid.grid-cols-1.gap-6(class="lg:grid-cols-2")
+
+      //- Bitrix24 Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.flex.items-center.justify-center
+            svg.w-12.h-12(viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg")
+              circle(cx="512" cy="512" r="512" style="fill:#2fc7f7")
+              path(d="M877 499.07h-22v-22h-5.91V505H877zM852.07 543A43.93 43.93 0 1 1 896 499.07 44.17 44.17 0 0 1 852.07 543zm0-79.83a35.9 35.9 0 1 0 35.9 35.9 35.87 35.87 0 0 0-35.9-35.9zm-84.48 59.56v-70.12h-14.78l-56.18 73.07v13.94h50.69v27.88h20.27v-27.88h16.9v-16.9zm-20.27-16.47v16.04H733.8c-4.22 0-11.83.42-14.36.42l28.72-38.86c0 3.38-.84 13.52-.84 22.39zm-132.21 60.82h79v-17.32h-52.39c7.18-28.72 51.11-35.06 51.11-67.16 0-17.32-11.83-30-36.33-30a85.18 85.18 0 0 0-38 9.29L624 478c8.45-3.8 17.74-7.6 29.14-7.6 9.29 0 17.74 3.8 17.74 14.36.41 23.6-51.12 25.29-55.77 82.32zm-76.45-46.89-33.79-46.46h24.5l22 30.41 22.39-30.41h24.5L564 520.19l34.64 46.89h-24.5l-22.39-31.26-22.81 31.26h-24.5zm-73.92-75.61a14.36 14.36 0 0 1 28.72 0c0 7.6-6.34 13.94-14.78 13.94s-13.94-5.91-13.94-13.94zm2.53 29.14h23.65v93.35h-23.64zm-73.5 0h20.27l2.53 10.56c8.45-8.45 16.05-12.67 25.77-12.67a24.76 24.76 0 0 1 13.09 3.8L447 495.27a20.08 20.08 0 0 0-10.56-3c-6.34 0-11.4 2.53-19 9.29v65.94h-23.66zm-124.6-29.14a14.24 14.24 0 0 1 14.36-14.36c8 0 14.78 5.91 14.78 14.36 0 7.6-6.34 13.94-14.78 13.94s-14.36-5.91-14.36-13.94zm2.53 29.14h23.65v93.35h-23.64zm55.3 70.55v-52h-16.9v-18.54H327v-21.54l23.65-6.76v28.3H379l-5.91 18.59H350.7v46c0 8.87 3 11.83 9.29 11.83a26.42 26.42 0 0 0 14.36-4.65l7.18 16.05c-6.76 4.65-18.16 7.18-27.46 7.18-16.89.46-27.07-8.84-27.07-24.46zM164 437h38c27.88 0 40.55 16.05 40.55 32.95 0 11.4-5.49 21.54-15.63 27v.42c15.21 3.8 24.5 16.05 24.5 31.26 0 20.27-15.21 38.44-45.62 38.44H164zm35.06 54.49c13.09 0 20.27-7.18 20.27-17.32 0-9.71-6.34-17.32-20.27-17.32h-11v34.64zm3.8 56.18c15.63 0 24.5-5.91 24.5-19 0-11-8.45-17.74-21.54-17.74h-17.74v36.75z" style="fill:#fff")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Bitrix24
+            p.text-sm.text-gray-600 CRM and team collaboration
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="bitrix24.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div(x-show="bitrix24.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Domain
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bitrix24.domain"
+              placeholder="yourcompany.bitrix24.com"
+            )
+
+          div(x-show="bitrix24.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Webhook URL
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bitrix24.webhookUrl"
+              placeholder="https://yourcompany.bitrix24.com/rest/..."
+            )
+
+          button.w-full.px-4.py-2.bg-cyan-500.text-white.rounded-lg.transition-colors(
+            @click="savePlatform('bitrix24')"
+            class="hover:bg-cyan-600"
+          ) Save Bitrix24 Config
+
+      //- Google Chat Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.flex.items-center.justify-center
+            svg.w-12.h-12(xmlns="http://www.w3.org/2000/svg" viewBox="0 0 510 510")
+              defs
+                linearGradient#gchat-lg1
+                  stop(offset="0" stop-color="#ebeff0")
+                  stop(offset="1" stop-color="#e3e5e4")
+                linearGradient#gchat-lg2
+                  stop(offset="0" stop-color="#4c8df1" stop-opacity="0")
+                  stop(offset="1" stop-color="#4256ac")
+                linearGradient#gchat-lg3
+                  stop(offset="0" stop-color="#a7c5fd")
+                  stop(offset="1" stop-color="#7faef4")
+              path(fill="url(#gchat-lg1)" d="m476.441 14.351h-442.882c-18.534 0-33.559 15.025-33.559 33.56v431.733c0 14.231 17.205 21.357 27.268 11.295l90.259-90.259c11.777-11.777 27.751-18.394 44.407-18.394h314.506c18.534 0 33.559-15.025 33.559-33.559v-300.816c.001-18.535-15.024-33.56-33.558-33.56z")
+              path(fill="#4c8df1" d="M58.076 52.036h393.848c17.001 0 30.784 13.782 30.784 30.784v398.537c0 12.708-15.364 19.072-24.35 10.086l-123.948-123.949c-10.517-10.517-24.781-16.425-39.654-16.425h-236.68c-17.001 0-30.784-13.782-30.784-30.784v-237.465c0-17.002 13.783-30.784 30.784-30.784z")
+              circle(cx="324.725" cy="182.762" r="40.659" fill="#a7c5fd")
+              path(fill="url(#gchat-lg2)" d="m324.732 236.048c-.002 0-.004 0-.007 0-.002 0-.004 0-.007 0-26.007 0-49.748 9.706-67.792 25.696-5.292 4.69-8.231 11.489-8.231 18.56v12.603c0 4.327 3.508 7.835 7.835 7.835h136.388c4.327 0 7.835-3.508 7.835-7.835v-12.603c0-7.071-2.938-13.871-8.231-18.56-18.042-15.99-41.784-25.696-67.79-25.696z")
+              circle(cx="205.826" cy="150.871" r="51.65" fill="#ebeff0")
+              path(fill="url(#gchat-lg2)" d="m205.835 218.56c-.003 0-.006 0-.009 0s-.006 0-.009 0c-33.036 0-63.196 12.33-86.117 32.642-6.723 5.958-10.456 14.595-10.456 23.578v16.01c0 5.497 4.456 9.953 9.953 9.953h173.256c5.497 0 9.953-4.456 9.953-9.953v-16.01c0-8.983-3.733-17.62-10.456-23.578-22.92-20.312-53.079-32.642-86.115-32.642z")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Google Chat
+            p.text-sm.text-gray-600 Team messaging and collaboration
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="googleChat.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div(x-show="googleChat.enabled")
+            .bg-blue-50.border.border-blue-200.rounded-lg.p-4
+              p.text-sm.text-gray-700
+                strong Configuration:
+                |  Google Chat uses Application Default Credentials (Cloud Run service account).
+              p.text-xs.text-gray-600.mt-2
+                | No additional configuration needed. The service uses your project ID from Core Configuration automatically.
+
+          button.w-full.px-4.py-2.bg-blue-500.text-white.rounded-lg.transition-colors(
+            @click="savePlatform('google-chat')"
+            class="hover:bg-blue-600"
+          ) Save Google Chat Config
+
+      //- Asana Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.flex.items-center.justify-center
+            svg.w-12.h-12(xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 169")
+              defs
+                radialGradient#asana-gradient(cy="54.652%" r="66.263%" fx="50%" fy="54.652%")
+                  stop(offset="0%" stop-color="#FFB900")
+                  stop(offset="60%" stop-color="#F95D8F")
+                  stop(offset="99.91%" stop-color="#F95353")
+              path(fill="#283343" d="M24.04 159.631c-8.436 0-15.274-6.989-15.274-15.612 0-8.622 6.838-15.612 15.275-15.612 8.436 0 15.273 6.99 15.273 15.612 0 8.623-6.837 15.612-15.273 15.612zm15.323 1.98c0 1.43 2.45 5.446 5.452 5.446h1.944c.754 0 1.37-.617 1.37-1.37v-42.725h-.007a1.37 1.37 0 0 0-1.363-1.296h-6.024c-.729 0-1.324.577-1.365 1.296h-.007v3.472c-3.69-4.546-9.51-6.433-15.346-6.433C10.752 120.001 0 130.754 0 144.02s10.752 24.019 24.017 24.019c5.836 0 12.196-2.264 15.346-6.433v.007zm23.16-6.118c4.021 2.785 8.411 4.138 12.629 4.138 4.02 0 8.173-2.084 8.173-5.71 0-4.84-9.053-5.594-14.74-7.527-5.69-1.933-10.59-5.93-10.59-12.402 0-9.902 8.824-13.992 17.06-13.992 5.218 0 10.601 1.72 14.092 4.186 1.203.91.47 1.957.47 1.957l-3.332 4.758c-.374.536-1.15.964-1.969.419-2.245-1.484-4.745-2.914-9.262-2.914-5.591 0-8.05 2.321-8.05 5.197 0 3.45 3.933 4.534 8.54 5.71 8.03 2.163 16.79 4.766 16.79 14.609 0 8.725-8.162 14.117-17.182 14.117-6.835 0-12.655-1.949-17.536-5.53-1.016-1.018-.306-1.963-.306-1.963l3.315-4.734c.675-.886 1.525-.576 1.898-.319zm74.99 6.119c0 1.429 2.449 5.445 5.45 5.445h1.945c.754 0 1.371-.617 1.371-1.37v-42.725h-.008a1.372 1.372 0 0 0-1.363-1.296h-6.024c-.73 0-1.324.577-1.364 1.296h-.007v3.472c-3.691-4.546-9.511-6.433-15.346-6.433-13.265 0-24.019 10.753-24.019 24.018s10.754 24.019 24.019 24.019c5.835 0 12.195-2.264 15.345-6.433v.007zm-15.323-1.98c-8.437 0-15.275-6.99-15.275-15.613 0-8.622 6.838-15.612 15.275-15.612 8.435 0 15.274 6.99 15.274 15.612 0 8.623-6.839 15.612-15.274 15.612zm78.063 3.448l-.002-22.107c0-12.462-7.862-20.87-20.4-20.87-5.984 0-10.88 3.461-12.613 6.434v-.042l-.01.034c-.004-3.008-2.444-4.76-5.452-4.76h-1.934c-.755 0-1.371.618-1.371 1.372v42.726h.008c.039.72.635 1.297 1.363 1.297h6.024c.092 0 .183-.011.27-.027.04-.009.077-.025.116-.036.046-.013.092-.024.134-.042.055-.022.103-.052.153-.08.024-.015.05-.025.074-.04a1.5 1.5 0 0 0 .168-.134c.009-.009.02-.015.028-.023a1.358 1.358 0 0 0 .42-.915h.009V140.63c0-6.693 5.426-12.12 12.12-12.12 6.693 0 12.12 5.427 12.12 12.12l.004 21.096.002-.008c0 .019.004.039.004.058v4.091h.008c.04.72.634 1.297 1.363 1.297h6.024c.093 0 .182-.011.27-.027.036-.008.069-.023.103-.031.05-.015.1-.028.148-.047.049-.02.094-.049.14-.075.029-.015.059-.027.086-.045.056-.038.107-.081.157-.125.013-.01.027-.02.04-.033.056-.054.106-.114.153-.176a1.362 1.362 0 0 0 .266-.734l.001-.004h.007v-2.787zm46.981-1.468c0 1.429 2.447 5.445 5.45 5.445h1.945c.753 0 1.371-.617 1.371-1.37v-42.725h-.007a1.373 1.373 0 0 0-1.364-1.296h-6.023a1.37 1.37 0 0 0-1.364 1.296h-.008v3.472c-3.693-4.546-9.511-6.433-15.348-6.433-13.263 0-24.017 10.753-24.017 24.018s10.754 24.019 24.017 24.019c5.837 0 12.196-2.264 15.345-6.433l.003.007zm-15.322-1.98c-8.437 0-15.275-6.99-15.275-15.613 0-8.622 6.838-15.612 15.275-15.612 8.433 0 15.271 6.99 15.271 15.612 0 8.623-6.838 15.612-15.271 15.612z")
+              path(fill="url(#asana-gradient)" d="M155.733 47.358c-11.626 0-21.049 9.423-21.049 21.047 0 11.625 9.423 21.05 21.049 21.05 11.624 0 21.047-9.425 21.047-21.05 0-11.624-9.423-21.047-21.047-21.047zm-54.685.001C89.424 47.36 80 56.781 80 68.406c0 11.624 9.424 21.048 21.048 21.048 11.625 0 21.049-9.424 21.049-21.048 0-11.625-9.424-21.047-21.05-21.047zm48.39-26.311c0 11.624-9.423 21.05-21.047 21.05-11.626 0-21.049-9.426-21.049-21.05S116.765 0 128.391 0c11.624 0 21.046 9.424 21.046 21.048z")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Asana
+            p.text-sm.text-gray-600 Work management and tracking
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="asana.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Access Token
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="password"
+              x-model="asana.accessToken"
+              :placeholder="hasAsanaAccessToken ? '••••••••••••••••••••• (configured)' : 'Your Asana access token'"
+            )
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Workspace GID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="asana.workspaceGid"
+              placeholder="123456789012345"
+            )
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Bot Email
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="email"
+              x-model="asana.botEmail"
+              placeholder="morgan@yourcompany.asana.com"
+            )
+            p.text-xs.text-gray-500.mt-1 Email address of the Asana bot account for task assignment detection
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Webhook Secret
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="password"
+              x-model="asana.webhookSecret"
+              :placeholder="hasAsanaWebhookSecret ? '••••••••••••••••••••• (configured)' : 'Your Asana webhook secret'"
+            )
+            p.text-xs.text-gray-500.mt-1 Secret for validating incoming Asana webhook events
+
+          button.w-full.px-4.py-2.bg-pink-600.text-white.rounded-lg.transition-colors(
+            @click="savePlatform('asana')"
+            class="hover:bg-pink-700"
+          ) Save Asana Config
+
+      //- Bluesky Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.flex.items-center.justify-center
+            svg.w-12.h-12(xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none")
+              defs
+                linearGradient#bluesky-bg(x1="16" y1="16" x2="208" y2="240" gradientUnits="userSpaceOnUse")
+                  stop(stop-color="#fff")
+                  stop(offset="1" stop-color="#ACCCFF")
+                linearGradient#bluesky-fg(x1="64.373" y1="74.667" x2="64.373" y2="187.072" gradientUnits="userSpaceOnUse")
+                  stop(stop-color="#0A7AFF")
+                  stop(offset="1" stop-color="#59B9FF")
+              rect(width="224" height="224" x="16" y="16" fill="url(#bluesky-bg)" rx="70")
+              path(fill="url(#bluesky-fg)" d="M91.9568 82.2328C106.545 93.2222 122.239 115.501 127.999 127.457V159.035C127.999 158.363 127.74 159.123 127.184 160.759C124.177 169.619 112.434 204.197 85.5823 176.554C71.4435 162 77.989 147.445 103.726 143.051C89.0022 145.564 72.4495 141.411 67.9083 125.126C66.5999 120.442 64.373 91.5878 64.373 87.6907C64.373 68.1695 81.4307 74.3054 91.9568 82.2328ZM164.041 82.2328C149.453 93.2222 133.759 115.501 127.999 127.457V159.035C127.999 158.363 128.257 159.123 128.814 160.759C131.82 169.619 143.563 204.197 170.415 176.554C184.554 162 178.009 147.445 152.272 143.051C166.995 145.564 183.548 141.411 188.089 125.126C189.398 120.442 191.625 91.5878 191.625 87.6907C191.625 68.1695 174.569 74.3054 164.041 82.2328Z")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Bluesky
+            p.text-sm.text-gray-600 Decentralized social networking
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="bluesky.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div(x-show="bluesky.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Handle
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bluesky.handle"
+              placeholder="yourusername.bsky.social"
+            )
+
+          div(x-show="bluesky.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 App Password
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="password"
+              x-model="bluesky.appPassword"
+              :placeholder="hasBlueskyAppPassword ? '••••••••••••••••••••• (configured)' : 'Your Bluesky app-specific password'"
+            )
+
+          div(x-show="bluesky.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Service URL
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bluesky.serviceUrl"
+              placeholder="https://bsky.social"
+            )
+
+          button.w-full.px-4.py-2.bg-sky-600.text-white.rounded-lg.transition-colors(
+            @click="savePlatform('bluesky')"
+            class="hover:bg-sky-700"
+          ) Save Bluesky Config
+
+  //- Alpine.js Platforms Manager
+  script.
+    function platformsManager() {
+      return {
+        bitrix24: {
+          enabled: #{bitrix24.enabled || false},
+          domain: '#{bitrix24.domain || ""}',
+          webhookUrl: '#{bitrix24.webhookUrl || ""}'
+        },
+        googleChat: {
+          enabled: #{googleChat.enabled || false}
+        },
+        asana: {
+          enabled: #{asana.enabled || false},
+          accessToken: '',
+          workspaceGid: '#{asana.workspaceGid || ""}',
+          botEmail: '#{asana.botEmail || ""}',
+          webhookSecret: ''
+        },
+        bluesky: {
+          enabled: #{bluesky.enabled || false},
+          handle: '#{bluesky.handle || ""}',
+          appPassword: '',
+          serviceUrl: '#{bluesky.serviceUrl || "https://bsky.social"}'
+        },
+        // Credential existence flags for masked placeholders
+        hasAsanaAccessToken: #{hasAsanaAccessToken || false},
+        hasAsanaWebhookSecret: #{hasAsanaWebhookSecret || false},
+        hasBlueskyAppPassword: #{hasBlueskyAppPassword || false},
+
+        async savePlatform(platformId) {
+          try {
+            // Convert platform-id to camelCase property name (google-chat → googleChat)
+            const propertyName = platformId.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+            const updates = this[propertyName];
+
+            const response = await fetch(`/dashboard/platforms/${platformId}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify(updates)
+            });
+
+            if (response.ok) {
+              alert('Configuration saved successfully!');
+              window.location.reload();
+            } else {
+              const error = await response.json();
+              alert(`Error: ${error.error || 'Failed to save configuration'}`);
+            }
+          } catch (error) {
+            alert(`Error: ${error.message}`);
+          }
+        }
+      }
+    }

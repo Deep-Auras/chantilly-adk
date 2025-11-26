@@ -36,6 +36,9 @@ class BskyPersonaFollow extends BaseTool {
         },
         personaIds: {
           type: 'array',
+          items: {
+            type: 'string'
+          },
           description: 'Array of persona IDs to target (optional, defaults to all personas in knowledge base)'
         },
         matchThreshold: {

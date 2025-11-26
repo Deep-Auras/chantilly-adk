@@ -1,6 +1,6 @@
 const BaseTool = require('../lib/baseTool');
-const config = require('../config/env');
 const toolSettingsManager = require('../lib/toolSettings');
+const { getFirestore } = require('../config/firestore');
 
 class ReminderTool extends BaseTool {
   constructor(context) {
@@ -47,7 +47,7 @@ class ReminderTool extends BaseTool {
     try {
       // Get tool settings from Firestore (with fallback to env vars)
       const settings = await toolSettingsManager.getToolSettings('reminder');
-      const preferredPlatform = settings.platform || this.getDefaultPlatform();
+      const preferredPlatform = settings.platform || await this.getDefaultPlatform();
 
       this.log('info', 'Reminder platform selected', {
         platform: preferredPlatform,
@@ -76,18 +76,25 @@ class ReminderTool extends BaseTool {
   }
 
   /**
-   * Get default platform based on enabled integrations
+   * Get default platform based on enabled integrations from Firestore
    */
-  getDefaultPlatform() {
-    if (config.ENABLE_BITRIX24_INTEGRATION) {
-      return 'bitrix24';
-    } else if (config.ENABLE_ASANA_INTEGRATION) {
-      return 'asana';
-    } else if (config.ENABLE_GOOGLE_CHAT_INTEGRATION) {
-      return 'google-calendar';
-    } else {
-      throw new Error('No reminder platform is enabled. Enable ENABLE_BITRIX24_INTEGRATION, ENABLE_ASANA_INTEGRATION, or ENABLE_GOOGLE_CHAT_INTEGRATION.');
+  async getDefaultPlatform() {
+    const db = getFirestore();
+
+    // Check platform-settings collection
+    const platformsSnapshot = await db.collection('platform-settings').get();
+
+    for (const doc of platformsSnapshot.docs) {
+      const data = doc.data();
+      if (data.enabled) {
+        const platformId = doc.id;
+        if (platformId === 'bitrix24') return 'bitrix24';
+        if (platformId === 'asana') return 'asana';
+        if (platformId === 'googleChat') return 'google-calendar';
+      }
     }
+
+    throw new Error('No reminder platform is enabled. Enable a platform in dashboard settings.');
   }
 
   /**
@@ -196,10 +203,13 @@ class ReminderTool extends BaseTool {
       const { getAsanaService } = require('../services/asanaService');
       const asana = getAsanaService();
 
-      // Get Asana workspace GID from environment
-      const workspaceGid = config.ASANA_WORKSPACE_GID;
+      // Get Asana workspace GID from Firestore
+      const db = getFirestore();
+      const asanaPlatform = await db.collection('platform-settings').doc('asana').get();
+      const workspaceGid = asanaPlatform.exists ? asanaPlatform.data().workspaceGid : null;
+
       if (!workspaceGid) {
-        throw new Error('ASANA_WORKSPACE_GID not configured');
+        throw new Error('ASANA_WORKSPACE_GID not configured in platform settings');
       }
 
       // Create task in Asana

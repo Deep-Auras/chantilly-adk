@@ -36,6 +36,9 @@ class BskyYouTubePost extends BaseTool {
         },
         personaIds: {
           type: 'array',
+          items: {
+            type: 'string'
+          },
           description: 'Target persona IDs for tailoring post tone/content (optional)'
         },
         maxLength: {

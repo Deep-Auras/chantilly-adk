@@ -130,20 +130,11 @@ spec:
         - name: ENABLE_VECTOR_SEARCH
           value: "true"
 
-        - name: VECTOR_SEARCH_ROLLOUT_PERCENTAGE
-          value: "100"
-
         - name: ENABLE_SEMANTIC_TEMPLATES
           value: "true"
 
-        - name: SEMANTIC_TEMPLATES_ROLLOUT_PERCENTAGE
-          value: "100"
-
         - name: ENABLE_SEMANTIC_TOOLS
           value: "true"
-
-        - name: SEMANTIC_TOOLS_ROLLOUT_PERCENTAGE
-          value: "100"
 
         # Rate limits
         - name: RATE_LIMIT_PER_SECOND

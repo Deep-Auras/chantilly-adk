@@ -54,6 +54,9 @@ class BskyFeedAnalyzer extends BaseTool {
         },
         personaIds: {
           type: 'array',
+          items: {
+            type: 'string'
+          },
           description: 'Array of persona IDs to filter prospects (optional, defaults to all personas)'
         }
       },

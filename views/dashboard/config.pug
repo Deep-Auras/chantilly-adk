@@ -1,0 +1,905 @@
+extends ../layouts/dashboard
+
+block content
+  //- Page Header
+  .mb-8
+    .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
+      div
+        h1.text-3xl.font-bold.text-gray-900 Agent Configuration
+        p.text-gray-600.mt-2 Manage agent personality, feature flags, and system settings
+
+  //- Configuration Sections (Alpine.js reactive)
+  div(x-data="configManager()")
+    //- RBAC Configuration Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 RBAC Provider
+      .space-y-4
+        .flex.items-center.justify-between.p-4.border.border-gray-200.rounded-lg
+          div
+            p.font-medium.text-gray-900 User Directory Provider
+            p.text-sm.text-gray-600 Select your organization's user management system
+          select.px-4.py-2.border.border-gray-300.rounded-lg(
+            x-model="rbacProvider"
+            @change="saveRbacProvider()"
+            class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          )
+            option(value="bitrix24") Bitrix24
+            option(value="google-workspace") Google Workspace
+
+    //- Core Configuration Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Core Configuration
+      form(@submit.prevent="saveCoreConfig")
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Agent Name
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="coreConfig.AGENT_NAME"
+              placeholder="morgan"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Unique identifier for this agent instance
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Google Cloud Project ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="coreConfig.GOOGLE_CLOUD_PROJECT"
+              placeholder="your-project-id"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div(class="md:col-span-2")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Gemini API Key
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg(
+                type="password"
+                x-model="coreConfig.GEMINI_API_KEY"
+                :placeholder="hasGeminiKey ? '••••••••••••••••••••• (configured)' : 'Your Gemini API key'"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-gray-600.text-white.rounded-lg(
+                type="button"
+                @click="window.open('https://aistudio.google.com/app/apikey', '_blank')"
+                class="hover:bg-gray-700"
+              ) Get Key
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save Core Configuration
+
+    //- Security Keys Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Security Keys
+      p.text-sm.text-gray-600.mb-4 Manage encryption keys and secrets for authentication and security
+      form(@submit.prevent="saveSecurityKeys")
+        .grid.grid-cols-1.gap-6
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 JWT Secret
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
+                type="password"
+                x-model="securityKeys.JWT_SECRET"
+                :placeholder="hasJwtSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-green-600.text-white.rounded-lg(
+                type="button"
+                @click="generateSecret('JWT_SECRET')"
+                class="hover:bg-green-700"
+              ) Generate
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Dashboard Session Secret
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
+                type="password"
+                x-model="securityKeys.DASHBOARD_SESSION_SECRET"
+                :placeholder="hasDashboardSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-green-600.text-white.rounded-lg(
+                type="button"
+                @click="generateSecret('DASHBOARD_SESSION_SECRET')"
+                class="hover:bg-green-700"
+              ) Generate
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Credential Encryption Key
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
+                type="password"
+                x-model="securityKeys.CREDENTIAL_ENCRYPTION_KEY"
+                :placeholder="hasEncryptionKey ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-green-600.text-white.rounded-lg(
+                type="button"
+                @click="generateSecret('CREDENTIAL_ENCRYPTION_KEY')"
+                class="hover:bg-green-700"
+              ) Generate
+
+          .bg-yellow-50.border.border-yellow-200.rounded-lg.p-4
+            .flex.items-start.gap-2
+              svg.w-5.h-5.text-yellow-600.flex-shrink-0(fill="currentColor" viewBox="0 0 20 20" class="mt-0.5")
+                path(d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9a1 1 0 012 0v4a1 1 0 11-2 0V9zm1-5a1 1 0 100 2 1 1 0 000-2z")
+              div
+                p.text-sm.font-medium.text-yellow-800 Warning: Changing these keys will invalidate existing sessions and credentials
+                p.text-xs.text-yellow-700.mt-1 Users will need to re-authenticate and platform credentials may need to be re-entered
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save Security Keys
+
+    //- Gemini Configuration Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Gemini AI Configuration
+      form(@submit.prevent="saveGeminiConfig")
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Gemini Model
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="geminiConfig.GEMINI_MODEL"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              optgroup(label="Latest Models (November 2025)")
+                option(value="gemini-3-pro-preview") Gemini 3 Pro (Latest & Most Intelligent)
+                option(value="gemini-2.5-pro") Gemini 2.5 Pro (Reasoning & Long Context)
+                option(value="gemini-2.5-flash") Gemini 2.5 Flash (Best Price-Performance)
+              optgroup(label="Stable Models")
+                option(value="gemini-2.5-flash-lite") Gemini 2.5 Flash Lite (Fast & Low-Cost)
+                option(value="gemini-2.0-flash") Gemini 2.0 Flash
+                option(value="gemini-2.0-flash-lite") Gemini 2.0 Flash Lite
+              optgroup(label="Preview/Experimental")
+                option(value="gemini-2.5-flash-preview-09-2025") Gemini 2.5 Flash Preview
+                option(value="gemini-2.5-flash-lite-preview-09-2025") Gemini 2.5 Flash Lite Preview
+                option(value="gemini-2.0-flash-exp") Gemini 2.0 Flash Experimental
+            p.text-xs.text-gray-500.mt-1 Select the Gemini model for AI responses
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Vertex AI Location
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="geminiConfig.VERTEX_AI_LOCATION"
+              placeholder="us-central1"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Region for Vertex AI embedding generation
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save Gemini Configuration
+
+    //- System Configuration Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 System Configuration
+      form(@submit.prevent="saveSystemConfig")
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
+          //- Google Cloud
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Firestore Database ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.FIRESTORE_DATABASE_ID"
+              placeholder="(default)"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 GCS Bucket Name
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.GCS_BUCKET_NAME"
+              placeholder="chantilly-adk-files"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          //- Server Settings
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Port
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.PORT"
+              placeholder="8080"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Node Environment
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="systemConfig.NODE_ENV"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              option(value="development") Development
+              option(value="production") Production
+              option(value="test") Test
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Service Name
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.SERVICE_NAME"
+              placeholder="chantilly-adk"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Cloud Run Service URL
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.CLOUD_RUN_SERVICE_URL"
+              placeholder="https://your-service-run.app"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Your deployed Cloud Run service URL
+
+          //- Queue Configuration
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Queue Max Retries
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.QUEUE_MAX_RETRIES"
+              placeholder="3"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Queue Retry Delay (ms)
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.QUEUE_RETRY_DELAY"
+              placeholder="5000"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Tool Execution Timeout (ms)
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.TOOL_EXECUTION_TIMEOUT"
+              placeholder="720000"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 12 minutes default for complex operations
+
+          //- Rate Limits
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Rate Limit Per Second
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.RATE_LIMIT_PER_SECOND"
+              placeholder="2"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Rate Limit Per 10 Minutes
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.RATE_LIMIT_PER_10MIN"
+              placeholder="10000"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          //- Translation
+          div(class="md:col-span-2")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Translation Target Dialog IDs (JSON)
+            textarea.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              rows="2"
+              x-model="systemConfig.TRANSLATION_TARGET_DIALOG_IDS"
+              placeholder='{"es":"chat123","fr":"chat456"}'
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 JSON mapping of language codes to Bitrix24 dialog IDs
+
+          //- Prompts
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Use Database Prompts
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="systemConfig.USE_DB_PROMPTS"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+            p.text-xs.text-gray-500.mt-1 Use Firestore for prompt overrides
+
+          //- Authentication
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 JWT Expires In
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.JWT_EXPIRES_IN"
+              placeholder="24h"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          //- File Storage
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 File Cleanup Days
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.FILE_CLEANUP_DAYS"
+              placeholder="7"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Max File Size (MB)
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.MAX_FILE_SIZE_MB"
+              placeholder="10"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          //- Security Settings (moved from earlier)
+          //- Security Settings
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Helmet Security
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="systemConfig.ENABLE_HELMET"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable CORS
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="systemConfig.ENABLE_CORS"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Allowed Origins (comma-separated)
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.ALLOWED_ORIGINS"
+              placeholder="https://example.com,https://app.example.com"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          //- Cloud Tasks
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Cloud Tasks Location
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.CLOUD_TASKS_LOCATION"
+              placeholder="us-central1"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Cloud Tasks Queue
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="systemConfig.CLOUD_TASKS_QUEUE"
+              placeholder="default"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          //- Logging
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Use Cloud Logging
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="systemConfig.USE_CLOUD_LOGGING"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Log Level
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="systemConfig.LOG_LEVEL"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              option(value="error") Error
+              option(value="warn") Warn
+              option(value="info") Info
+              option(value="debug") Debug
+
+          //- Metrics
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Metrics
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="systemConfig.ENABLE_METRICS"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          //- MATTS Testing
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 MATTS Parallel Enabled
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="systemConfig.MATTS_PARALLEL_ENABLED"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 MATTS Sequential Enabled
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="systemConfig.MATTS_SEQUENTIAL_ENABLED"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
+              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 MATTS Parallel Variants
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.MATTS_PARALLEL_VARIANTS"
+              placeholder="3"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 MATTS Sequential Iterations
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="systemConfig.MATTS_SEQUENTIAL_ITERATIONS"
+              placeholder="5"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save System Configuration
+
+    //- Feature Flags Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Feature Flags
+      .space-y-4
+        //- Vector Search
+        .flex.items-center.justify-between.p-4.border.border-gray-200.rounded-lg
+          div
+            p.font-medium.text-gray-900 Vector Search
+            p.text-sm.text-gray-600 Enable semantic search with vector embeddings
+          label.relative.inline-flex.items-center.cursor-pointer
+            input.sr-only.peer(
+              type="checkbox"
+              x-model="featureFlags.ENABLE_VECTOR_SEARCH"
+              @change="saveFeatureFlag('ENABLE_VECTOR_SEARCH', $event.target.checked)"
+            )
+            .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
+            .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+        //- Semantic Templates
+        .flex.items-center.justify-between.p-4.border.border-gray-200.rounded-lg
+          div
+            p.font-medium.text-gray-900 Semantic Templates
+            p.text-sm.text-gray-600 Use vector search for task template matching
+          label.relative.inline-flex.items-center.cursor-pointer
+            input.sr-only.peer(
+              type="checkbox"
+              x-model="featureFlags.ENABLE_SEMANTIC_TEMPLATES"
+              @change="saveFeatureFlag('ENABLE_SEMANTIC_TEMPLATES', $event.target.checked)"
+            )
+            .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
+            .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+        //- Semantic Tools
+        .flex.items-center.justify-between.p-4.border.border-gray-200.rounded-lg
+          div
+            p.font-medium.text-gray-900 Semantic Tool Detection
+            p.text-sm.text-gray-600 Use vector search for tool trigger detection
+          label.relative.inline-flex.items-center.cursor-pointer
+            input.sr-only.peer(
+              type="checkbox"
+              x-model="featureFlags.ENABLE_SEMANTIC_TOOLS"
+              @change="saveFeatureFlag('ENABLE_SEMANTIC_TOOLS', $event.target.checked)"
+            )
+            .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600 peer-focus:ring-2 peer-focus:ring-blue-300")
+            .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+    //- Agent Personality Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Agent Personality
+      form(@submit.prevent="savePersonality")
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
+          //- Communication Style
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Communication Style
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="personality.communication"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              option(value="professional") Professional
+              option(value="friendly") Friendly
+              option(value="casual") Casual
+              option(value="formal") Formal
+
+          //- Response Length
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Response Length
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="personality.responseLength"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              option(value="concise") Concise
+              option(value="balanced") Balanced
+              option(value="detailed") Detailed
+
+          //- Proactiveness
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Proactiveness
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="personality.proactiveness"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+              option(value="reactive") Reactive (wait for requests)
+              option(value="suggestive") Suggestive (offer help)
+              option(value="proactive") Proactive (anticipate needs)
+
+          //- Humor Level
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Humor Level
+            input.w-full(
+              type="range"
+              min="0"
+              max="10"
+              x-model="personality.humor"
+            )
+            p.text-sm.text-gray-600.mt-1 Level: <span x-text="personality.humor"></span>/10
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save Personality
+
+    //- Rate Limits Section
+    .bg-white.rounded-lg.shadow.p-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Rate Limits
+      form(@submit.prevent="saveRateLimits")
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
+          //- General Rate Limit
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 General Requests
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="rateLimits.general"
+              placeholder="100"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Requests per minute
+
+          //- Authentication Rate Limit
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Authentication
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="rateLimits.auth"
+              placeholder="10"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Login attempts per hour
+
+          //- Webhook Rate Limit
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Webhooks
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="rateLimits.webhook"
+              placeholder="100"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Webhook calls per minute
+
+          //- API Rate Limit
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 API Calls
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="number"
+              x-model="rateLimits.api"
+              placeholder="60"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 API requests per minute
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save Rate Limits
+
+  //- Alpine.js Config Manager
+  script.
+    function configManager() {
+      return {
+        rbacProvider: '#{config.rbacProvider || "bitrix24"}',
+        coreConfig: {
+          AGENT_NAME: '#{config.AGENT_NAME || "Clementine"}',
+          GOOGLE_CLOUD_PROJECT: '#{config.GOOGLE_CLOUD_PROJECT || ""}',
+          GEMINI_API_KEY: ''
+        },
+        hasGeminiKey: #{!!config.GEMINI_API_KEY},
+        securityKeys: {
+          JWT_SECRET: '',
+          DASHBOARD_SESSION_SECRET: '',
+          CREDENTIAL_ENCRYPTION_KEY: ''
+        },
+        hasJwtSecret: #{!!config.JWT_SECRET},
+        hasDashboardSecret: #{!!config.DASHBOARD_SESSION_SECRET},
+        hasEncryptionKey: #{!!config.CREDENTIAL_ENCRYPTION_KEY},
+        geminiConfig: {
+          GEMINI_MODEL: '#{config.GEMINI_MODEL || "gemini-2.5-pro"}',
+          VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || "us-central1"}'
+        },
+        systemConfig: {
+          FIRESTORE_DATABASE_ID: '#{config.FIRESTORE_DATABASE_ID || "(default)"}',
+          GCS_BUCKET_NAME: '#{config.GCS_BUCKET_NAME || "chantilly-adk-files"}',
+          PORT: #{config.PORT || 8080},
+          NODE_ENV: '#{config.NODE_ENV || "production"}',
+          SERVICE_NAME: '#{config.SERVICE_NAME || "chantilly-adk"}',
+          CLOUD_RUN_SERVICE_URL: '#{config.CLOUD_RUN_SERVICE_URL || ""}',
+          QUEUE_MAX_RETRIES: #{config.QUEUE_MAX_RETRIES || 3},
+          QUEUE_RETRY_DELAY: #{config.QUEUE_RETRY_DELAY || 5000},
+          TOOL_EXECUTION_TIMEOUT: #{config.TOOL_EXECUTION_TIMEOUT || 720000},
+          RATE_LIMIT_PER_SECOND: #{config.RATE_LIMIT_PER_SECOND || 2},
+          RATE_LIMIT_PER_10MIN: #{config.RATE_LIMIT_PER_10MIN || 10000},
+          TRANSLATION_TARGET_DIALOG_IDS: '#{config.TRANSLATION_TARGET_DIALOG_IDS || "{}"}',
+          USE_DB_PROMPTS: #{config.USE_DB_PROMPTS || false},
+          JWT_EXPIRES_IN: '#{config.JWT_EXPIRES_IN || "24h"}',
+          FILE_CLEANUP_DAYS: #{config.FILE_CLEANUP_DAYS || 7},
+          MAX_FILE_SIZE_MB: #{config.MAX_FILE_SIZE_MB || 10},
+          ENABLE_HELMET: #{config.ENABLE_HELMET !== false},
+          ENABLE_CORS: #{config.ENABLE_CORS !== false},
+          ALLOWED_ORIGINS: '#{config.ALLOWED_ORIGINS || ""}',
+          CLOUD_TASKS_LOCATION: '#{config.CLOUD_TASKS_LOCATION || "us-central1"}',
+          CLOUD_TASKS_QUEUE: '#{config.CLOUD_TASKS_QUEUE || "default"}',
+          USE_CLOUD_LOGGING: #{config.USE_CLOUD_LOGGING !== false},
+          LOG_LEVEL: '#{config.LOG_LEVEL || "info"}',
+          ENABLE_METRICS: #{config.ENABLE_METRICS !== false},
+          MATTS_PARALLEL_ENABLED: #{config.MATTS_PARALLEL_ENABLED || false},
+          MATTS_SEQUENTIAL_ENABLED: #{config.MATTS_SEQUENTIAL_ENABLED || false},
+          MATTS_PARALLEL_VARIANTS: #{config.MATTS_PARALLEL_VARIANTS || 3},
+          MATTS_SEQUENTIAL_ITERATIONS: #{config.MATTS_SEQUENTIAL_ITERATIONS || 5}
+        },
+        featureFlags: {
+          ENABLE_VECTOR_SEARCH: #{featureFlags.ENABLE_VECTOR_SEARCH || false},
+          ENABLE_SEMANTIC_TEMPLATES: #{featureFlags.ENABLE_SEMANTIC_TEMPLATES || false},
+          ENABLE_SEMANTIC_TOOLS: #{featureFlags.ENABLE_SEMANTIC_TOOLS || false}
+        },
+        personality: {
+          communication: '#{config.communication || "professional"}',
+          responseLength: '#{config.responseLength || "balanced"}',
+          proactiveness: '#{config.proactiveness || "suggestive"}',
+          humor: #{config.humor || 5}
+        },
+        rateLimits: {
+          general: #{rateLimits.general || 100},
+          auth: #{rateLimits.auth || 10},
+          webhook: #{rateLimits.webhook || 100},
+          api: #{rateLimits.api || 60}
+        },
+
+        generateSecret(fieldName) {
+          // Generate a cryptographically secure random secret (64 bytes = 128 hex chars)
+          const array = new Uint8Array(64);
+          crypto.getRandomValues(array);
+          const secret = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+          this.securityKeys[fieldName] = secret;
+        },
+
+        async saveRbacProvider() {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: { rbacProvider: this.rbacProvider }
+              })
+            });
+
+            if (response.ok) {
+              alert('RBAC provider updated successfully!');
+            } else {
+              console.error('Failed to update RBAC provider');
+            }
+          } catch (error) {
+            console.error('Error updating RBAC provider:', error);
+          }
+        },
+
+        async saveCoreConfig() {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: this.coreConfig
+              })
+            });
+
+            if (response.ok) {
+              alert('Core configuration saved successfully!');
+              window.location.reload();
+            } else {
+              console.error('Failed to update core configuration');
+            }
+          } catch (error) {
+            console.error('Error updating core configuration:', error);
+          }
+        },
+
+        async saveSecurityKeys() {
+          if (!confirm('WARNING: Changing security keys will invalidate all existing sessions and encrypted credentials. Users will need to re-authenticate. Continue?')) {
+            return;
+          }
+
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: this.securityKeys
+              })
+            });
+
+            if (response.ok) {
+              alert('Security keys updated successfully! You will be logged out.');
+              window.location.href = '/auth/login';
+            } else {
+              console.error('Failed to update security keys');
+            }
+          } catch (error) {
+            console.error('Error updating security keys:', error);
+          }
+        },
+
+        async saveGeminiConfig() {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: this.geminiConfig
+              })
+            });
+
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              console.error('Failed to update Gemini configuration');
+            }
+          } catch (error) {
+            console.error('Error updating Gemini configuration:', error);
+          }
+        },
+
+        async saveSystemConfig() {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: this.systemConfig
+              })
+            });
+
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              console.error('Failed to update system configuration');
+            }
+          } catch (error) {
+            console.error('Error updating system configuration:', error);
+          }
+        },
+
+        async saveFeatureFlag(key, value) {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'feature-flags',
+                updates: { [key]: value }
+              })
+            });
+
+            if (response.ok) {
+              console.log(`Feature flag ${key} updated`);
+            } else {
+              console.error('Failed to update feature flag');
+            }
+          } catch (error) {
+            console.error('Error updating feature flag:', error);
+          }
+        },
+
+        async savePersonality() {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: this.personality
+              })
+            });
+
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              console.error('Failed to update personality');
+            }
+          } catch (error) {
+            console.error('Error updating personality:', error);
+          }
+        },
+
+        async saveRateLimits() {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'rate-limits',
+                updates: this.rateLimits
+              })
+            });
+
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              console.error('Failed to update rate limits');
+            }
+          } catch (error) {
+            console.error('Error updating rate limits:', error);
+          }
+        }
+      }
+    }
