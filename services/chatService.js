@@ -468,10 +468,23 @@ class ChatService {
           config: requestConfig.config
         });
 
-        // Stream final response
+        // Stream final response (may contain MORE tool calls or text)
         fullResponse = ''; // Reset for final response
+        const additionalToolCalls = [];
+
         for await (const chunk of finalResult) {
           if (cleaned) break;
+
+          // Check if Gemini wants to call MORE tools
+          const moreFunctionCalls = chunk.candidates?.[0]?.content?.parts?.filter(p => p.functionCall);
+          if (moreFunctionCalls && moreFunctionCalls.length > 0) {
+            logger.info('Additional tool calls detected', {
+              count: moreFunctionCalls.length,
+              toolNames: moreFunctionCalls.map(p => p.functionCall.name)
+            });
+            additionalToolCalls.push(...moreFunctionCalls);
+            continue;
+          }
 
           const text = chunk.text || extractGeminiText(chunk);
           if (text) {
@@ -480,14 +493,31 @@ class ChatService {
             res.write(`event: chunk\ndata: ${eventData}\n\n`);
           }
         }
+
+        // If there are additional tool calls, log but don't execute (prevent infinite loop)
+        if (additionalToolCalls.length > 0) {
+          logger.warn('Gemini requested additional tool calls - not supported yet', {
+            count: additionalToolCalls.length,
+            toolNames: additionalToolCalls.map(p => p.functionCall.name),
+            suggestion: 'This request may require ComplexTaskManager or multiple tool rounds'
+          });
+        }
       }
 
-      // Save assistant response
-      await this.saveMessage(conversationId, {
-        role: 'assistant',
-        content: fullResponse,
-        userId: null
-      });
+      // Save assistant response (only if we got text)
+      if (fullResponse && fullResponse.trim()) {
+        await this.saveMessage(conversationId, {
+          role: 'assistant',
+          content: fullResponse,
+          userId: null
+        });
+      } else {
+        logger.warn('No text response from Gemini', {
+          userId,
+          conversationId,
+          hadToolCalls: toolCallParts.length > 0
+        });
+      }
 
       // Send completion event
       res.write('event: done\ndata: {"status": "complete"}\n\n');
