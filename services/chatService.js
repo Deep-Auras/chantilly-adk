@@ -368,7 +368,7 @@ class ChatService {
       const result = await client.models.generateContentStream(requestConfig);
 
       let fullResponse = '';
-      const toolCalls = [];
+      const toolCallParts = []; // Store FULL parts (including thought_signature)
 
       // Stream chunks to client
       // Note: @google/genai v1.30+ returns directly iterable response (not result.stream)
@@ -376,15 +376,15 @@ class ChatService {
         if (cleaned) break; // Stop if connection closed
 
         // Check for function calls (tool execution requests from Gemini)
-        const functionCalls = chunk.candidates?.[0]?.content?.parts?.filter(p => p.functionCall);
-        if (functionCalls && functionCalls.length > 0) {
-          // Gemini wants to call tools
+        const functionCallParts = chunk.candidates?.[0]?.content?.parts?.filter(p => p.functionCall);
+        if (functionCallParts && functionCallParts.length > 0) {
+          // Gemini wants to call tools - store FULL parts (includes thought_signature)
           logger.info('Tool calls detected in chat stream', {
-            toolCount: functionCalls.length,
-            toolNames: functionCalls.map(fc => fc.functionCall.name)
+            toolCount: functionCallParts.length,
+            toolNames: functionCallParts.map(p => p.functionCall.name)
           });
 
-          toolCalls.push(...functionCalls.map(fc => fc.functionCall));
+          toolCallParts.push(...functionCallParts); // Store full parts, not just functionCall
           continue; // Don't send tool calls as text to user
         }
 
@@ -400,19 +400,20 @@ class ChatService {
       }
 
       // If tools were called, execute them and get final response
-      if (toolCalls.length > 0) {
+      if (toolCallParts.length > 0) {
         logger.info('Executing tools from chat', {
-          toolCount: toolCalls.length,
+          toolCount: toolCallParts.length,
           userId,
           conversationId
         });
 
         // Send status update to client
-        res.write('event: tool\ndata: {"status": "executing", "count": ' + toolCalls.length + '}\n\n');
+        res.write('event: tool\ndata: {"status": "executing", "count": ' + toolCallParts.length + '}\n\n');
 
         // Execute each tool
         const toolResults = [];
-        for (const call of toolCalls) {
+        for (const part of toolCallParts) {
+          const call = part.functionCall;
           const tool = registry.getTool(call.name);
           if (tool) {
             try {
@@ -450,9 +451,10 @@ class ChatService {
         }
 
         // Send tool results back to Gemini for final response
+        // CRITICAL: Send back FULL parts (includes thought_signature from Gemini)
         contents.push({
           role: 'model',
-          parts: toolCalls.map(tc => ({ functionCall: tc }))
+          parts: toolCallParts // Use full parts, not reconstructed
         });
         contents.push({
           role: 'user',
