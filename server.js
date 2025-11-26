@@ -111,8 +111,16 @@ app.use(flash());
 // Make user and flash messages available to all views
 app.use((req, res, next) => {
   res.locals.user = req.user || null;
-  res.locals.success = req.flash('success');
-  res.locals.error = req.flash('error');
+
+  // Only use flash if session is initialized
+  if (sessionMiddleware && req.flash) {
+    res.locals.success = req.flash('success');
+    res.locals.error = req.flash('error');
+  } else {
+    res.locals.success = [];
+    res.locals.error = [];
+  }
+
   next();
 });
 
