@@ -11,6 +11,23 @@ router.post('/webhook/google-chat', async (req, res) => {
     const event = req.body;
     const chatService = getGoogleChatService();
 
+    // CRITICAL DEBUG: Log request details to diagnose duplicates
+    const requestId = req.headers['x-goog-chat-request-id'] || req.headers['x-request-id'] || 'no-id';
+    const eventId = event.chat?.eventId || event.eventId || 'no-event-id';
+    const messageNameRaw = event.chat?.messagePayload?.message?.name || event.message?.name || 'no-message-name';
+
+    logger.info('WEBHOOK REQUEST START', {
+      requestId,
+      eventId,
+      messageNameRaw,
+      timestamp: new Date().toISOString(),
+      headers: {
+        'x-goog-chat-request-id': req.headers['x-goog-chat-request-id'],
+        'x-request-id': req.headers['x-request-id'],
+        'x-cloud-trace-context': req.headers['x-cloud-trace-context']
+      }
+    });
+
     // Google Workspace Add-on format: event.chat.messagePayload
     // Simple Chat app format: event.type, event.message, event.space
     const isAddOnFormat = event.chat && event.chat.messagePayload;

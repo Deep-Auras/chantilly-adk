@@ -227,9 +227,20 @@ class GoogleChatService {
 
     const messageId = message.name || `${space.name}-${user.name}-${message.text?.substring(0, 50)}`;
 
+    logger.info('DEDUPLICATION CHECK', {
+      messageId: messageId.substring(0, 150),
+      messageName: message.name || 'NO MESSAGE.NAME',
+      spaceName: space.name,
+      userName: user.displayName,
+      messageText: message.text?.substring(0, 100),
+      currentInFlight: this.processingMessages.size,
+      alreadyProcessing: this.processingMessages.has(messageId),
+      inFlightKeys: Array.from(this.processingMessages.keys()).map(k => k.substring(0, 100))
+    });
+
     // SYNCHRONOUS duplicate check (no await before this)
     if (this.processingMessages.has(messageId)) {
-      logger.warn('Duplicate webhook detected, ignoring', {
+      logger.warn('DUPLICATE DETECTED - Ignoring request', {
         messageId: messageId.substring(0, 100),
         spaceName: space.name,
         userName: user.displayName,
@@ -243,6 +254,11 @@ class GoogleChatService {
       startTime: Date.now(),
       spaceName: space.name,
       userName: user.displayName
+    });
+
+    logger.info('REQUEST ACCEPTED - Added to processing map', {
+      messageId: messageId.substring(0, 100),
+      inFlightCount: this.processingMessages.size
     });
 
     try {
