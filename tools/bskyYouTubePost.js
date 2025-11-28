@@ -17,7 +17,7 @@
 
 const BaseTool = require('../lib/baseTool');
 const { getBskyService } = require('../services/bskyService');
-const { getVertexAIClient, extractGeminiText } = require('../config/gemini');
+const { getVertexAIClient, extractGeminiText, getGeminiModelName } = require('../config/gemini');
 
 class BskyYouTubePost extends BaseTool {
   constructor(context) {
@@ -225,7 +225,7 @@ Format response as JSON:
       const vertexAI = await getVertexAIClient();
 
       const response = await vertexAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [
           {
             fileData: {
@@ -343,7 +343,7 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
       const vertexAI = await getVertexAIClient();
 
       const response = await vertexAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: postPrompt }] }],
         generationConfig: {
           temperature: 0.7, // Higher creativity for engaging content

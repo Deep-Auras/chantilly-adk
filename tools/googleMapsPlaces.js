@@ -1,6 +1,6 @@
 const BaseTool = require('../lib/baseTool');
 const axios = require('axios');
-const { extractGeminiText } = require('../config/gemini');
+const { extractGeminiText, getGeminiModelName } = require('../config/gemini');
 const { logger } = require('../utils/logger');
 const { getFirestore } = require('../config/firestore');
 
@@ -549,7 +549,7 @@ PROVIDE A JSON RESPONSE WITH:
 Generate a focused strategy for Google Places API to answer: "${location}"`;
 
       const result = await client.models.generateContent({
-        model: 'gemini-2.0-flash-exp',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }],
         config: {
           temperature: 0.3,
@@ -723,7 +723,7 @@ Extract and provide a JSON response with:
 Focus on extracting specific place types, neighborhood names, and search terms that would help find relevant places.`;
 
       const result = await client.models.generateContent({
-        model: 'gemini-2.0-flash-exp',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }],
         config: {
           temperature: 0.3,

@@ -1,5 +1,5 @@
 const { GoogleGenAI } = require('@google/genai');
-const { extractGeminiText } = require('../config/gemini');
+const { extractGeminiText, getGeminiModelName } = require('../config/gemini');
 const { logger } = require('../utils/logger');
 const { getTaskQueueModel } = require('../models/taskQueue');
 const { getTaskTemplatesModel } = require('../models/taskTemplates');
@@ -288,7 +288,7 @@ Example output format:
 }`;
 
       const result = await this.genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: prompt }] }]
       });
 
@@ -529,7 +529,7 @@ Requirements:
 Return ONLY the suffix (no "task_" prefix, no explanations):`;
 
       const response = await this.genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: prompt }] }]
       });
 

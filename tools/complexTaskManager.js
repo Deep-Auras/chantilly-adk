@@ -5,7 +5,7 @@ const { getTaskTemplatesModel } = require('../models/taskTemplates');
 const { getTaskTemplateLoader } = require('../services/taskTemplateLoader');
 const { logger } = require('../utils/logger');
 const { GoogleGenAI } = require('@google/genai');
-const { extractGeminiText } = require('../config/gemini');
+const { extractGeminiText, getGeminiModelName } = require('../config/gemini');
 const config = require('../config/env');
 const embeddingService = require('../services/embeddingService');
 const { FieldValue } = require('@google-cloud/firestore');
@@ -851,7 +851,7 @@ Return only the JSON object with detected parameters:`;
       }
 
       const response = await this.genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
           maxOutputTokens: 4096, // Sufficient headroom for parameter extraction with safety margin
@@ -2170,7 +2170,7 @@ RETURN ONLY STRICT JSON (property names in quotes) WITH NO FORMATTING:`;
 
       // STEP 1: Generate metadata JSON (without executionScript)
       const metadataResponse = await this.genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
           maxOutputTokens: 8192, // Metadata only, much smaller
@@ -2314,7 +2314,7 @@ Generate a COMPLETE, production-ready JavaScript class that:
 RETURN ONLY THE JAVASCRIPT CLASS CODE:`;
 
       const scriptResponse = await this.genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: scriptPrompt }] }],
         generationConfig: {
           maxOutputTokens: 65535, // Maximum for complex executionScript
@@ -3386,7 +3386,7 @@ RETURN FORMAT: Return a JSON object with the complete modified template:
 Focus on the user's specific request and maintain all existing critical functionality.`;
 
       const response = await genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: modificationPrompt }] }],
         generationConfig: {
           maxOutputTokens: 65535,

@@ -1082,10 +1082,22 @@ class BskyService {
 
       logger.info('Post saved to Firestore', { sanitizedUri });
 
+      // Construct Bluesky post URL
+      const postRkey = response.uri.split('/').pop();
+      const postUrl = `https://bsky.app/profile/${this.session.did}/post/${postRkey}`;
+
+      logger.info('Bluesky post URL constructed', {
+        uri: response.uri,
+        did: this.session.did,
+        rkey: postRkey,
+        url: postUrl,
+        urlLength: postUrl.length
+      });
+
       return {
         uri: response.uri,
         cid: response.cid,
-        url: `https://bsky.app/profile/${this.session.did}/post/${response.uri.split('/').pop()}`
+        url: postUrl
       };
     } catch (error) {
       logger.error('Failed to create post', {

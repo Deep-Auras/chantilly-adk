@@ -1,5 +1,5 @@
 const vm = require('vm');
-const { extractGeminiText } = require('../config/gemini');
+const { extractGeminiText, getGeminiModelName } = require('../config/gemini');
 const { logger } = require('../utils/logger');
 const { getTaskTemplatesModel } = require('../models/taskTemplates');
 const { RepairTracker } = require('./repairTracker');
@@ -775,7 +775,7 @@ IMPORTANT: When user asks for NEW analysis types, data combinations, or report f
 Return ONLY the JSON, no other text.`;
 
       const response = await genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: prompt }] }]
       });
 
@@ -1342,7 +1342,7 @@ class TaskExecutor extends BaseTaskExecutor {
 Return ONLY the corrected execution script, no explanations. The script must fix ALL validation errors listed above.`;
 
       const response = await genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: repairPrompt }] }],
         config: {
           maxOutputTokens: 65535,
@@ -1906,7 +1906,7 @@ Before returning the script, verify that ALL API calls use endpoints from the al
 Return ONLY the complete corrected execution script with the error fixed. No explanations or markdown formatting.`;
 
       const response = await genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: errorRepairPrompt }] }],
         config: {
           maxOutputTokens: 65535,
@@ -2182,7 +2182,7 @@ Before returning the script, perform a final check:
 Return ONLY the complete corrected execution script with ALL security violations fixed. No explanations or markdown formatting.`;
 
       const response = await genAI.models.generateContent({
-        model: 'gemini-2.5-pro',
+        model: getGeminiModelName(),
         contents: [{ role: 'user', parts: [{ text: securityRepairPrompt }] }],
         config: {
           maxOutputTokens: 65535,
