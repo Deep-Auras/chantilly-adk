@@ -222,7 +222,7 @@ Format response as JSON:
 
     try {
       // CRITICAL: Use Vertex AI client (NOT regular Gemini client) for YouTube URL support
-      const vertexAI = getVertexAIClient();
+      const vertexAI = await getVertexAIClient();
 
       const response = await vertexAI.models.generateContent({
         model: 'gemini-2.5-pro',
@@ -340,7 +340,7 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
 
     try {
       // Use Vertex AI client directly for simple content generation
-      const vertexAI = getVertexAIClient();
+      const vertexAI = await getVertexAIClient();
 
       const response = await vertexAI.models.generateContent({
         model: 'gemini-2.5-pro',

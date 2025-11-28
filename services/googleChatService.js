@@ -232,6 +232,19 @@ class GoogleChatService {
     // Use hash as primary key, fallback to message.name only if hash generation fails
     const messageId = messageHash || message.name || `${space.name}-${user.name}-${Date.now()}`;
 
+    // CRITICAL: Check-and-set in one operation to minimize race window
+    const alreadyProcessing = this.processingMessages.has(messageId);
+
+    // Set IMMEDIATELY (even before logging) to win the race
+    if (!alreadyProcessing) {
+      this.processingMessages.set(messageId, {
+        startTime: Date.now(),
+        spaceName: space.name,
+        userName: user.displayName,
+        messageHash
+      });
+    }
+
     logger.info('DEDUPLICATION CHECK', {
       messageId,
       messageHash,
@@ -240,12 +253,12 @@ class GoogleChatService {
       userName: user.displayName,
       messageText: message.text?.substring(0, 100),
       currentInFlight: this.processingMessages.size,
-      alreadyProcessing: this.processingMessages.has(messageId),
+      alreadyProcessing,
       inFlightKeys: Array.from(this.processingMessages.keys()).map(k => k.substring(0, 20))
     });
 
-    // SYNCHRONOUS duplicate check (no await before this)
-    if (this.processingMessages.has(messageId)) {
+    // SYNCHRONOUS duplicate check (after set to avoid race)
+    if (alreadyProcessing) {
       logger.warn('DUPLICATE DETECTED - Ignoring request', {
         messageId,
         messageHash,
@@ -257,15 +270,7 @@ class GoogleChatService {
       return this.createCardResponse('⏳ Processing your previous request...');
     }
 
-    // Mark IMMEDIATELY before any async operations
-    this.processingMessages.set(messageId, {
-      startTime: Date.now(),
-      spaceName: space.name,
-      userName: user.displayName,
-      messageHash
-    });
-
-    logger.info('REQUEST ACCEPTED - Added to processing map', {
+    logger.info('REQUEST ACCEPTED - First to process this message', {
       messageId,
       messageHash,
       inFlightCount: this.processingMessages.size
