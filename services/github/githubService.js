@@ -5,8 +5,10 @@
  */
 
 const { Octokit } = require('@octokit/rest');
+const { createAppAuth } = require('@octokit/auth-app');
 const { getFirestore, getFieldValue } = require('../../config/firestore');
 const { logger } = require('../../utils/logger');
+const { getEncryption } = require('../../utils/encryption');
 
 class GitHubService {
   constructor() {
@@ -42,15 +44,60 @@ class GitHubService {
         return;
       }
 
+      // Get encrypted credentials from agent/credentials
+      const credentialsDoc = await this.db.doc('agent/credentials').get();
+      if (!credentialsDoc.exists) {
+        throw new Error('Credentials document not found');
+      }
+      const credentials = credentialsDoc.data();
+
+      // Get encryption service
+      const encryption = getEncryption();
+      if (!encryption.isEnabled()) {
+        throw new Error('Encryption not enabled, cannot decrypt GitHub credentials');
+      }
+
       // Initialize Octokit based on auth type
-      if (this.config.authType === 'personal-token' && this.config.accessToken) {
+      const authType = this.config.authType || 'personal-token';
+
+      if (authType === 'personal-token') {
+        const encryptedToken = credentials.github_access_token;
+        if (!encryptedToken) {
+          throw new Error('GitHub access token not found in credentials');
+        }
+        const accessToken = encryption.decryptCredential(encryptedToken);
+
         this.octokit = new Octokit({
-          auth: this.config.accessToken
+          auth: accessToken
         });
-      } else if (this.config.authType === 'github-app') {
-        // GitHub App authentication would go here
-        // For now, we only support personal tokens
-        throw new Error('GitHub App authentication not yet implemented');
+      } else if (authType === 'github-app') {
+        // GitHub App authentication using @octokit/auth-app
+        const { appId, installationId } = this.config;
+
+        if (!appId || !installationId) {
+          throw new Error('GitHub App ID and Installation ID are required');
+        }
+
+        const encryptedPrivateKey = credentials.github_private_key;
+        if (!encryptedPrivateKey) {
+          throw new Error('GitHub private key not found in credentials');
+        }
+        const privateKey = encryption.decryptCredential(encryptedPrivateKey);
+
+        // Create Octokit with GitHub App authentication
+        this.octokit = new Octokit({
+          authStrategy: createAppAuth,
+          auth: {
+            appId: appId,
+            privateKey: privateKey,
+            installationId: installationId
+          }
+        });
+
+        logger.info('GitHub App authentication configured', {
+          appId,
+          installationId
+        });
       } else {
         throw new Error('Invalid GitHub authentication configuration');
       }
