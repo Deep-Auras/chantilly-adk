@@ -234,6 +234,7 @@ router.get('/platforms', requireAdmin, async (req, res) => {
     const googleChatConfig = await configManager.getPlatform('google-chat');
     const asanaConfig = await configManager.getPlatform('asana');
     const blueskyConfig = await configManager.getPlatform('bluesky');
+    const githubConfig = await configManager.getPlatform('github');
 
     // Check if encrypted credentials exist (for showing masked placeholders)
     const credentialsDoc = await getFirestore().collection('agent').doc('credentials').get();
@@ -247,11 +248,14 @@ router.get('/platforms', requireAdmin, async (req, res) => {
       googleChat: googleChatConfig || {},
       asana: asanaConfig || {},
       bluesky: blueskyConfig || {},
+      github: githubConfig || {},
       // Credential existence flags for masked placeholders
       hasAsanaAccessToken: !!credentials.asana_access_token,
       hasAsanaWebhookSecret: !!credentials.asana_webhook_secret,
       hasBlueskyAppPassword: !!credentials.bluesky_app_password,
-      hasBitrix24WebhookUrl: !!credentials.bitrix24_webhook_url
+      hasBitrix24WebhookUrl: !!credentials.bitrix24_webhook_url,
+      hasGithubAccessToken: !!credentials.github_access_token,
+      hasGithubPrivateKey: !!credentials.github_private_key
     });
   } catch (error) {
     logger.error('Platforms dashboard error', {
@@ -822,7 +826,7 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     const updates = req.body;
 
     // Validate platform ID (whitelist)
-    const validPlatforms = ['bitrix24', 'google-chat', 'asana', 'bluesky'];
+    const validPlatforms = ['bitrix24', 'google-chat', 'asana', 'bluesky', 'github'];
     if (!validPlatforms.includes(platformId)) {
       return res.status(400).json({ error: 'Invalid platform ID' });
     }
@@ -847,6 +851,23 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     if (platformId === 'bluesky' && updates.enabled) {
       if (!updates.handle || !updates.appPassword) {
         return res.status(400).json({ error: 'Handle and app password required for Bluesky' });
+      }
+    }
+
+    // GitHub requires either Personal Access Token OR GitHub App credentials
+    if (platformId === 'github' && updates.enabled) {
+      if (!updates.defaultOwner || !updates.defaultRepo) {
+        return res.status(400).json({ error: 'Repository owner and name required for GitHub' });
+      }
+      const authType = updates.authType || 'personal-token';
+      if (authType === 'personal-token') {
+        if (!updates.accessToken) {
+          return res.status(400).json({ error: 'Access token required for GitHub Personal Access Token authentication' });
+        }
+      } else if (authType === 'github-app') {
+        if (!updates.appId || !updates.installationId || !updates.privateKey) {
+          return res.status(400).json({ error: 'App ID, Installation ID, and Private Key required for GitHub App authentication' });
+        }
       }
     }
 
@@ -885,6 +906,24 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
         updates.appPassword,
         req.user.id
       );
+    }
+
+    // GitHub credential encryption
+    if (platformId === 'github') {
+      if (updates.accessToken) {
+        updates.accessToken = await configManager.updateCredential(
+          'github_access_token',
+          updates.accessToken,
+          req.user.id
+        );
+      }
+      if (updates.privateKey) {
+        updates.privateKey = await configManager.updateCredential(
+          'github_private_key',
+          updates.privateKey,
+          req.user.id
+        );
+      }
     }
 
     await configManager.updatePlatform(platformId, updates, req.user.id);
