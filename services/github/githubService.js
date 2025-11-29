@@ -194,10 +194,6 @@ class GitHubService {
         };
       }
 
-      // 1. Test API authentication
-      const { data: user } = await this.octokit.rest.users.getAuthenticated();
-
-      // 2. Test repository access
       const { defaultOwner, defaultRepo } = this.config;
       if (!defaultOwner || !defaultRepo) {
         return {
@@ -206,12 +202,34 @@ class GitHubService {
         };
       }
 
+      // For GitHub App auth, we can't use users.getAuthenticated()
+      // Instead, verify by checking repository access directly
+      const authType = this.config.authType || 'personal-token';
+      let authInfo = {};
+
+      if (authType === 'personal-token') {
+        // Personal token: can get authenticated user
+        const { data: user } = await this.octokit.rest.users.getAuthenticated();
+        authInfo = { user: user.login, authType: 'personal-token' };
+      } else if (authType === 'github-app') {
+        // GitHub App: get app installation info instead
+        try {
+          const { data: installation } = await this.octokit.rest.apps.getAuthenticated();
+          authInfo = { app: installation.name, authType: 'github-app' };
+        } catch {
+          // If that fails, just note it's a GitHub App
+          authInfo = { authType: 'github-app' };
+        }
+      }
+
+      // Test repository access
+
       await this.octokit.rest.repos.get({
         owner: defaultOwner,
         repo: defaultRepo
       });
 
-      // 3. Test branch listing (verify read permissions)
+      // Test branch listing (verify read permissions)
       const { data: branches } = await this.octokit.rest.repos.listBranches({
         owner: defaultOwner,
         repo: defaultRepo,
@@ -220,12 +238,12 @@ class GitHubService {
 
       return {
         connected: true,
-        user: user.login,
+        ...authInfo,
         repository: `${defaultOwner}/${defaultRepo}`,
         branchCount: branches.length,
         permissions: {
           read: true,
-          write: true // We'll assume write if read works for personal tokens
+          write: true
         }
       };
     } catch (error) {
