@@ -114,22 +114,37 @@ class GitHubService {
   }
 
   /**
+   * Reset the service state to force re-initialization
+   * Called when config changes (e.g., after saving platform settings)
+   */
+  reset() {
+    this.initialized = false;
+    this.octokit = null;
+    this.config = null;
+    this.treeCache.clear();
+    logger.info('GitHub service reset, will re-initialize on next use');
+  }
+
+  /**
    * Check if GitHub integration is enabled
+   * Always reads fresh config from Firestore
    */
   async isEnabled() {
-    if (!this.config) {
-      const configDoc = await this.db.doc('agent/platforms/github/config').get();
-      if (!configDoc.exists) return false;
-      this.config = configDoc.data();
-    }
+    // Always read fresh config to detect changes
+    const configDoc = await this.db.doc('agent/platforms/github/config').get();
+    if (!configDoc.exists) return false;
+    this.config = configDoc.data();
     return this.config?.enabled === true;
   }
 
   /**
    * Verify GitHub connection - tests API auth, repo access, and branch listing
+   * Always re-initializes to pick up fresh config
    */
   async verifyConnection() {
     try {
+      // Reset and re-initialize to pick up any config changes
+      this.reset();
       await this.initialize();
 
       if (!this.octokit) {

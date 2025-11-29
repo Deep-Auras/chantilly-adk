@@ -776,7 +776,7 @@ router.get('/api/dashboard/stats', async (req, res) => {
  * Dashboard Activity API
  * GET /api/dashboard/activity
  */
-router.get('/api/dashboard/activity', async (req, res) => {
+router.get('/api/dashboard/activity', requireAdmin, async (req, res) => {
   try {
     const db = getFirestore();
     const limit = parseInt(req.query.limit) || 100;
@@ -786,6 +786,11 @@ router.get('/api/dashboard/activity', async (req, res) => {
       .orderBy('timestamp', 'desc')
       .limit(limit)
       .get();
+
+    logger.info('Activity logs query returned', {
+      count: logsSnapshot.docs.length,
+      userId: req.user.id
+    });
 
     const activities = logsSnapshot.docs.map(doc => {
       const data = doc.data();
@@ -810,9 +815,14 @@ router.get('/api/dashboard/activity', async (req, res) => {
   } catch (error) {
     logger.error('Dashboard activity API error', {
       error: error.message,
+      stack: error.stack,
       userId: req.user?.id
     });
-    res.json({ activities: [] }); // Return empty array on error
+    // Return error status instead of empty array to help debugging
+    res.status(500).json({
+      activities: [],
+      error: 'Failed to load activity logs'
+    });
   }
 });
 
@@ -927,6 +937,17 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     }
 
     await configManager.updatePlatform(platformId, updates, req.user.id);
+
+    // Reset GitHub service if GitHub config was updated (to pick up new credentials)
+    if (platformId === 'github') {
+      try {
+        const { getGitHubService } = require('../services/github/githubService');
+        const githubService = getGitHubService();
+        githubService.reset();
+      } catch (resetError) {
+        logger.warn('Failed to reset GitHub service', { error: resetError.message });
+      }
+    }
 
     // Audit log
     const db = getFirestore();

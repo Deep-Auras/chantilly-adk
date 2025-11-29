@@ -486,17 +486,30 @@ dashboardApiRouter.get('/stats', async (req, res) => {
 dashboardApiRouter.get('/activity', async (req, res) => {
   try {
     const db = getFirestore();
+    const limit = parseInt(req.query.limit) || 100;
+
     const logsSnapshot = await db.collection('audit-logs')
       .orderBy('timestamp', 'desc')
-      .limit(10)
+      .limit(limit)
       .get();
 
     const activities = logsSnapshot.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
-        message: `${data.action} by ${data.username || 'system'}`,
-        timestamp: data.timestamp?.toDate().toLocaleString() || 'Unknown'
+        action: data.action,
+        username: data.username,
+        userId: data.userId,
+        timestamp: data.timestamp,
+        // Include all detail fields for Activity Logs view
+        entryId: data.entryId,
+        toolName: data.toolName,
+        section: data.section,
+        platformId: data.platformId,
+        details: data.details,
+        enabled: data.enabled,
+        roles: data.roles,
+        targetUserId: data.targetUserId
       };
     });
 
