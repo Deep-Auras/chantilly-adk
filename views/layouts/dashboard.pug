@@ -226,7 +226,9 @@ html(lang="en")
 
             // Check if Build Mode is available (GitHub configured)
             try {
-              const response = await fetch('/api/build/github/status');
+              const response = await fetch('/api/build/github/status', {
+                credentials: 'same-origin' // Include session cookies
+              });
               if (response.ok) {
                 const data = await response.json();
                 this.buildModeAvailable = data.connected === true;

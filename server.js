@@ -495,13 +495,41 @@ dashboardApiRouter.get('/activity', async (req, res) => {
 
     const activities = logsSnapshot.docs.map(doc => {
       const data = doc.data();
+      // Format action for display (e.g., "config_update" -> "Config Update")
+      const formattedAction = data.action
+        ? data.action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        : 'Unknown Action';
+
+      // Convert Firestore timestamp to a format the frontend can handle
+      let timestamp = null;
+      if (data.timestamp) {
+        if (data.timestamp.toDate) {
+          // Firestore Timestamp object
+          timestamp = { seconds: Math.floor(data.timestamp.toDate().getTime() / 1000) };
+        } else if (data.timestamp._seconds) {
+          // Already serialized Firestore timestamp
+          timestamp = { seconds: data.timestamp._seconds };
+        } else if (data.timestamp instanceof Date) {
+          // JavaScript Date object
+          timestamp = { seconds: Math.floor(data.timestamp.getTime() / 1000) };
+        } else {
+          // Try parsing as string
+          const parsed = new Date(data.timestamp);
+          if (!isNaN(parsed.getTime())) {
+            timestamp = { seconds: Math.floor(parsed.getTime() / 1000) };
+          }
+        }
+      }
+
       return {
         id: doc.id,
+        // Legacy field for dashboard overview compatibility
+        message: `${formattedAction} by ${data.username || 'System'}`,
+        // Full fields for Activity Logs view
         action: data.action,
         username: data.username,
         userId: data.userId,
-        timestamp: data.timestamp,
-        // Include all detail fields for Activity Logs view
+        timestamp: timestamp,
         entryId: data.entryId,
         toolName: data.toolName,
         section: data.section,

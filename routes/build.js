@@ -7,7 +7,7 @@ const express = require('express');
 const router = express.Router();
 const joi = require('joi');
 const rateLimit = require('express-rate-limit');
-const { authenticateToken, sanitizeInput } = require('../middleware/auth');
+const { verifyToken, sanitizeInput } = require('../middleware/auth');
 const { getBuildModeManager } = require('../services/build/buildModeManager');
 const { getBuildModeTriggerService } = require('../services/build/buildModeTriggerService');
 const { getGitHubService } = require('../services/github/githubService');
@@ -142,7 +142,8 @@ const requireBuildAccess = async (req, res, next) => {
 };
 
 // Apply authentication, sanitization, and rate limiting to all build routes
-router.use(authenticateToken);
+// Use verifyToken which supports both session-based auth (dashboard) and JWT (API)
+router.use(verifyToken);
 router.use(sanitizeInput);
 router.use(buildModeLimiter);
 
