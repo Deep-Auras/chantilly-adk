@@ -14,6 +14,24 @@ const { getGitHubService } = require('../services/github/githubService');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
 
+// Decode HTML entities that may be introduced by frontend frameworks
+function decodeHtmlEntities(str) {
+  if (!str || typeof str !== 'string') {
+    return str;
+  }
+  return str
+    .replace(/&#x2F;/gi, '/')    // Forward slash
+    .replace(/&#47;/g, '/')       // Forward slash (decimal)
+    .replace(/&#x5C;/gi, '\\')   // Backslash
+    .replace(/&#92;/g, '\\')      // Backslash (decimal)
+    .replace(/&#x27;/gi, '\'')   // Single quote
+    .replace(/&#39;/g, '\'')      // Single quote (decimal)
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')      // Must be last
+    .replace(/&quot;/gi, '"');
+}
+
 // Path traversal validation helper
 function isValidFilePath(filePath) {
   if (!filePath || typeof filePath !== 'string') {
@@ -190,15 +208,18 @@ router.post('/enable', requireBuildAccess, async (req, res) => {
       });
     }
 
+    // Decode HTML entities from branch name
+    const branchName = decodeHtmlEntities(value.branch);
+
     const buildModeManager = getBuildModeManager();
     const result = await buildModeManager.enableBuildMode(
       req.user.username,
-      value.branch
+      branchName
     );
 
     logger.info('Build mode enabled', {
       enabledBy: req.user.username,
-      branch: value.branch,
+      branch: branchName,
       sessionId: result.sessionId
     });
 
@@ -350,21 +371,25 @@ router.post('/branches/create', requireBuildAccess, async (req, res) => {
       });
     }
 
+    // Decode HTML entities from branch names
+    const branchName = decodeHtmlEntities(value.branchName);
+    const fromBranch = decodeHtmlEntities(value.fromBranch);
+
     const githubService = getGitHubService();
     const result = await githubService.createBranch(
-      value.branchName,
-      value.fromBranch
+      branchName,
+      fromBranch
     );
 
     logger.info('Branch created', {
       createdBy: req.user.username,
-      branchName: value.branchName,
-      fromBranch: value.fromBranch
+      branchName: branchName,
+      fromBranch: fromBranch
     });
 
     res.json({
       success: true,
-      branch: value.branchName,
+      branch: branchName,
       ref: result.ref,
       sha: result.object.sha
     });
@@ -394,15 +419,18 @@ router.post('/branches/switch', requireBuildAccess, async (req, res) => {
       });
     }
 
+    // Decode HTML entities from branch name (frontend may encode slashes)
+    const branchName = decodeHtmlEntities(value.branch);
+
     const buildModeManager = getBuildModeManager();
     const result = await buildModeManager.switchBranch(
       req.user.username,
-      value.branch
+      branchName
     );
 
     logger.info('Branch switched', {
       switchedBy: req.user.username,
-      branch: value.branch
+      branch: branchName
     });
 
     res.json({
@@ -435,17 +463,21 @@ router.post('/branches/merge', requireBuildAccess, async (req, res) => {
       });
     }
 
+    // Decode HTML entities from branch names
+    const head = decodeHtmlEntities(value.head);
+    const base = decodeHtmlEntities(value.base);
+
     const githubService = getGitHubService();
     const result = await githubService.mergeBranch(
-      value.base,
-      value.head,
+      base,
+      head,
       value.commitMessage
     );
 
     logger.info('Branches merged', {
       mergedBy: req.user.username,
-      head: value.head,
-      base: value.base,
+      head: head,
+      base: base,
       sha: result.sha
     });
 
@@ -510,13 +542,16 @@ router.post('/modify', modificationLimiter, requireBuildAccess, async (req, res)
     const db = getFirestore();
     const FieldValue = getFieldValue();
 
+    // Decode HTML entities from branch if provided
+    const branch = value.branch ? decodeHtmlEntities(value.branch) : session.branch;
+
     // Get existing file content for updates
     let beforeContent = null;
     if (value.operation === 'update' || value.operation === 'delete') {
       const githubService = getGitHubService();
       const existing = await githubService.getFileContents(
         value.filePath,
-        value.branch || session.branch
+        branch
       );
       if (existing.type === 'file') {
         beforeContent = existing.content;
@@ -534,7 +569,7 @@ router.post('/modify', modificationLimiter, requireBuildAccess, async (req, res)
       beforeContent,
       afterContent: value.content || null,
       commitMessage: value.commitMessage,
-      branch: value.branch || session.branch,
+      branch: branch,
       userApproved: false,
       approvedAt: null,
       appliedAt: null,
@@ -866,7 +901,8 @@ router.get('/github/status', async (req, res) => {
  */
 router.get('/github/commits/:branch', requireBuildAccess, async (req, res) => {
   try {
-    const { branch } = req.params;
+    // Decode HTML entities from branch name (URL params may be encoded)
+    const branch = decodeHtmlEntities(req.params.branch);
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
     const githubService = getGitHubService();
@@ -897,7 +933,8 @@ router.get('/github/commits/:branch', requireBuildAccess, async (req, res) => {
 router.get('/github/file/*', requireBuildAccess, async (req, res) => {
   try {
     const filePath = req.params[0];
-    const ref = req.query.ref || req.query.branch;
+    // Decode HTML entities from ref/branch parameter
+    const ref = decodeHtmlEntities(req.query.ref || req.query.branch);
 
     if (!filePath) {
       return res.status(400).json({
@@ -946,7 +983,8 @@ router.get('/github/file/*', requireBuildAccess, async (req, res) => {
  */
 router.get('/github/tree', requireBuildAccess, async (req, res) => {
   try {
-    const branch = req.query.branch || 'main';
+    // Decode HTML entities from branch parameter
+    const branch = decodeHtmlEntities(req.query.branch) || 'main';
 
     const githubService = getGitHubService();
     const tree = await githubService.getTree(branch);
