@@ -139,13 +139,39 @@ class GeminiService {
       });
       const systemPrompt = await this.promptsModel.getPrompt('chat.system');
       const knowledgePrompt = this.knowledgeBase.getRelevantKnowledgePrompt(knowledgeResults);
-      const combinedSystemPrompt = `${personalityPrompt}\n\n${systemPrompt}${knowledgePrompt}`;
+
+      // Check if Build Mode should be activated for this message
+      let buildModePrompt = '';
+      try {
+        const { getBuildModeTriggerService } = require('./build/buildModeTriggerService');
+        const triggerService = getBuildModeTriggerService();
+        const buildModeCheck = await triggerService.shouldInjectBuildModePrompt(messageData.message);
+
+        if (buildModeCheck.inject) {
+          buildModePrompt = await this.promptsModel.getPrompt('buildMode.system');
+          logger.info('Build Mode prompt injected', {
+            matchedPhrase: buildModeCheck.matchedPhrase,
+            category: buildModeCheck.category,
+            similarity: buildModeCheck.similarity?.toFixed(4)
+          });
+        }
+      } catch (error) {
+        logger.warn('Build Mode trigger check failed, continuing without', {
+          error: error.message
+        });
+      }
+
+      const combinedSystemPrompt = buildModePrompt
+        ? `${personalityPrompt}\n\n${systemPrompt}\n\n${buildModePrompt}${knowledgePrompt}`
+        : `${personalityPrompt}\n\n${systemPrompt}${knowledgePrompt}`;
 
       // Debug logging
       logger.info('System prompt components', {
         personalityLength: personalityPrompt.length,
         systemLength: systemPrompt.length,
         knowledgeLength: knowledgePrompt.length,
+        buildModeLength: buildModePrompt.length,
+        buildModeActive: buildModePrompt.length > 0,
         totalLength: combinedSystemPrompt.length,
         personalityPreview: personalityPrompt.substring(0, 100)
       });
