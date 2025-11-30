@@ -200,7 +200,12 @@ router.get('/status', async (req, res) => {
  */
 router.post('/enable', requireBuildAccess, async (req, res) => {
   try {
-    const { error, value } = enableBuildModeSchema.validate(req.body);
+    // Decode HTML entities BEFORE validation
+    const decodedBody = {
+      branch: decodeHtmlEntities(req.body.branch)
+    };
+
+    const { error, value } = enableBuildModeSchema.validate(decodedBody);
     if (error) {
       return res.status(400).json({
         success: false,
@@ -208,8 +213,7 @@ router.post('/enable', requireBuildAccess, async (req, res) => {
       });
     }
 
-    // Decode HTML entities from branch name
-    const branchName = decodeHtmlEntities(value.branch);
+    const branchName = value.branch;
 
     const buildModeManager = getBuildModeManager();
     const result = await buildModeManager.enableBuildMode(
@@ -363,7 +367,13 @@ router.get('/branches', requireBuildAccess, async (req, res) => {
  */
 router.post('/branches/create', requireBuildAccess, async (req, res) => {
   try {
-    const { error, value } = createBranchSchema.validate(req.body);
+    // Decode HTML entities BEFORE validation (frontend may encode slashes)
+    const decodedBody = {
+      branchName: decodeHtmlEntities(req.body.branchName),
+      fromBranch: decodeHtmlEntities(req.body.fromBranch)
+    };
+
+    const { error, value } = createBranchSchema.validate(decodedBody);
     if (error) {
       return res.status(400).json({
         success: false,
@@ -371,9 +381,8 @@ router.post('/branches/create', requireBuildAccess, async (req, res) => {
       });
     }
 
-    // Decode HTML entities from branch names
-    const branchName = decodeHtmlEntities(value.branchName);
-    const fromBranch = decodeHtmlEntities(value.fromBranch);
+    const branchName = value.branchName;
+    const fromBranch = value.fromBranch;
 
     const githubService = getGitHubService();
     const result = await githubService.createBranch(
@@ -411,7 +420,12 @@ router.post('/branches/create', requireBuildAccess, async (req, res) => {
  */
 router.post('/branches/switch', requireBuildAccess, async (req, res) => {
   try {
-    const { error, value } = switchBranchSchema.validate(req.body);
+    // Decode HTML entities BEFORE validation
+    const decodedBody = {
+      branch: decodeHtmlEntities(req.body.branch)
+    };
+
+    const { error, value } = switchBranchSchema.validate(decodedBody);
     if (error) {
       return res.status(400).json({
         success: false,
@@ -419,8 +433,7 @@ router.post('/branches/switch', requireBuildAccess, async (req, res) => {
       });
     }
 
-    // Decode HTML entities from branch name (frontend may encode slashes)
-    const branchName = decodeHtmlEntities(value.branch);
+    const branchName = value.branch;
 
     const buildModeManager = getBuildModeManager();
     const result = await buildModeManager.switchBranch(
@@ -455,7 +468,14 @@ router.post('/branches/switch', requireBuildAccess, async (req, res) => {
  */
 router.post('/branches/merge', requireBuildAccess, async (req, res) => {
   try {
-    const { error, value } = mergeBranchSchema.validate(req.body);
+    // Decode HTML entities BEFORE validation
+    const decodedBody = {
+      head: decodeHtmlEntities(req.body.head),
+      base: decodeHtmlEntities(req.body.base),
+      commitMessage: req.body.commitMessage
+    };
+
+    const { error, value } = mergeBranchSchema.validate(decodedBody);
     if (error) {
       return res.status(400).json({
         success: false,
@@ -463,9 +483,8 @@ router.post('/branches/merge', requireBuildAccess, async (req, res) => {
       });
     }
 
-    // Decode HTML entities from branch names
-    const head = decodeHtmlEntities(value.head);
-    const base = decodeHtmlEntities(value.base);
+    const head = value.head;
+    const base = value.base;
 
     const githubService = getGitHubService();
     const result = await githubService.mergeBranch(
