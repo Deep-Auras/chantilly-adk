@@ -296,11 +296,47 @@ class GeminiService {
       }
 
       // Get role-filtered tools (RBAC)
-      const availableTools = registry.getToolsForUser(userRole);
+      let availableTools = registry.getToolsForUser(userRole);
+
+      // If Build Mode is active, add Build Mode tools (requires admin verification)
+      const buildModeActive = buildModePrompt.length > 0;
+      if (buildModeActive) {
+        // Verify user has Build Mode access before adding build tools
+        const { getBuildModeManager } = require('./build/buildModeManager');
+        const buildModeManager = getBuildModeManager();
+        const canModify = await buildModeManager.canUserModifyCode(
+          sanitizedMessageData.userId,
+          userRole
+        );
+
+        if (canModify.allowed) {
+          // Add Build Mode tools that aren't already in the list
+          const buildTools = registry.getToolsByCategory('build');
+          const existingToolNames = new Set(availableTools.map(t => t.name));
+
+          for (const tool of buildTools) {
+            if (!existingToolNames.has(tool.name) && tool.enabled) {
+              availableTools.push(tool);
+            }
+          }
+
+          logger.info('Build Mode tools added to available tools', {
+            buildToolsAdded: buildTools.filter(t => !existingToolNames.has(t.name)).map(t => t.name),
+            totalToolsNow: availableTools.length
+          });
+        } else {
+          logger.warn('Build Mode triggered but user lacks permission', {
+            userId: sanitizedMessageData.userId,
+            userRole: userRole,
+            reason: canModify.reason
+          });
+        }
+      }
 
       logger.info('Offering role-filtered tools to Gemini for AI-based selection', {
         userId: sanitizedMessageData.userId,
         userRole: userRole,
+        buildModeActive: buildModeActive,
         toolCount: availableTools.length,
         toolNames: availableTools.map(t => t.name),
         totalEnabled: registry.getEnabledTools().length,
