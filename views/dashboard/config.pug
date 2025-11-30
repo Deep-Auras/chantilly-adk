@@ -82,13 +82,13 @@ block content
             .flex.gap-2
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
-                x-model="securityKeys.JWT_SECRET"
+                x-model="securityKeys.jwtSecret"
                 :placeholder="hasJwtSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
                 type="button"
-                @click="generateSecret('JWT_SECRET')"
+                @click="generateSecret('jwtSecret')"
                 class="hover:bg-green-700"
               ) Generate
 
@@ -97,13 +97,13 @@ block content
             .flex.gap-2
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
-                x-model="securityKeys.DASHBOARD_SESSION_SECRET"
+                x-model="securityKeys.sessionSecret"
                 :placeholder="hasDashboardSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
                 type="button"
-                @click="generateSecret('DASHBOARD_SESSION_SECRET')"
+                @click="generateSecret('sessionSecret')"
                 class="hover:bg-green-700"
               ) Generate
 
@@ -112,13 +112,13 @@ block content
             .flex.gap-2
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
-                x-model="securityKeys.CREDENTIAL_ENCRYPTION_KEY"
+                x-model="securityKeys.credentialEncryptionKey"
                 :placeholder="hasEncryptionKey ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
                 type="button"
-                @click="generateSecret('CREDENTIAL_ENCRYPTION_KEY')"
+                @click="generateSecret('credentialEncryptionKey')"
                 class="hover:bg-green-700"
               ) Generate
 
@@ -637,13 +637,13 @@ block content
         },
         hasGeminiKey: #{!!config.GEMINI_API_KEY},
         securityKeys: {
-          JWT_SECRET: '',
-          DASHBOARD_SESSION_SECRET: '',
-          CREDENTIAL_ENCRYPTION_KEY: ''
+          jwtSecret: '',
+          sessionSecret: '',
+          credentialEncryptionKey: ''
         },
-        hasJwtSecret: #{!!config.JWT_SECRET},
-        hasDashboardSecret: #{!!config.DASHBOARD_SESSION_SECRET},
-        hasEncryptionKey: #{!!config.CREDENTIAL_ENCRYPTION_KEY},
+        hasJwtSecret: #{!!config.jwtSecret},
+        hasDashboardSecret: #{!!config.sessionSecret},
+        hasEncryptionKey: #{!!config.credentialEncryptionKey},
         geminiConfig: {
           GEMINI_MODEL: '#{config.GEMINI_MODEL || "gemini-2.5-pro"}',
           VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || "us-central1"}'

@@ -138,8 +138,27 @@ router.post('/complete', express.json(), async (req, res) => {
 
     const { username, email, password, agentName, geminiApiKey, geminiModel } = req.body;
 
+    // Debug: Log received fields (without sensitive data)
+    logger.info('Setup wizard - received data', {
+      username,
+      email,
+      hasPassword: !!password,
+      passwordLength: password?.length,
+      passwordType: typeof password,
+      agentName,
+      hasGeminiKey: !!geminiApiKey
+    });
+
     // Validate required fields
     if (!username || !email || !password || !agentName || !geminiApiKey || !geminiModel) {
+      logger.warn('Setup wizard - missing required fields', {
+        hasUsername: !!username,
+        hasEmail: !!email,
+        hasPassword: !!password,
+        hasAgentName: !!agentName,
+        hasGeminiKey: !!geminiApiKey,
+        hasGeminiModel: !!geminiModel
+      });
       return res.status(400).json({
         success: false,
         message: 'All fields are required'
@@ -223,6 +242,23 @@ router.post('/complete', express.json(), async (req, res) => {
     // Create admin user
     const hashedPassword = await bcrypt.hash(password, 12);
 
+    // Debug: Verify password was hashed correctly
+    if (!hashedPassword || !hashedPassword.startsWith('$2')) {
+      logger.error('Password hashing failed - invalid hash format', {
+        hashLength: hashedPassword?.length,
+        hashPrefix: hashedPassword?.substring(0, 4)
+      });
+      return res.status(500).json({
+        success: false,
+        message: 'Password hashing failed. Please try again.'
+      });
+    }
+
+    logger.info('Password hashed successfully', {
+      hashLength: hashedPassword.length,
+      hashPrefix: hashedPassword.substring(0, 7) // e.g., "$2a$12$"
+    });
+
     await db.collection('users').doc(username).set({
       username,
       email,
@@ -238,9 +274,10 @@ router.post('/complete', express.json(), async (req, res) => {
 
     logger.info('Admin user created via setup wizard', { username, email });
 
-    // Initialize agent configuration
+    // Initialize agent configuration with all security keys
     const sessionSecret = crypto.randomBytes(32).toString('hex');
     const jwtSecret = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+    const credentialEncryptionKey = crypto.randomBytes(32).toString('hex');
 
     await db.collection('agent').doc('config').set({
       AGENT_NAME: agentName,
@@ -248,10 +285,17 @@ router.post('/complete', express.json(), async (req, res) => {
       GEMINI_MODEL: geminiModel,
       sessionSecret,
       jwtSecret,
+      credentialEncryptionKey,
       setupCompleted: true,
       setupDate: getFieldValue().serverTimestamp(),
       version: '1.0.0'
     }, { merge: true });
+
+    logger.info('Security keys generated', {
+      hasSessionSecret: !!sessionSecret,
+      hasJwtSecret: !!jwtSecret,
+      hasCredentialKey: !!credentialEncryptionKey
+    });
 
     logger.info('Agent configuration initialized', {
       agentName,

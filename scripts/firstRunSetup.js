@@ -244,17 +244,20 @@ async function createAdminUser(db, username, email, password) {
 async function initializeAgentConfig(db, agentName) {
   const sessionSecret = crypto.randomBytes(32).toString('hex');
   const jwtSecret = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+  const credentialEncryptionKey = crypto.randomBytes(32).toString('hex');
 
   await db.collection('agent').doc('config').set({
     AGENT_NAME: agentName,
     sessionSecret,
     jwtSecret,
+    credentialEncryptionKey,
     setupCompleted: true,
     setupDate: admin.firestore.FieldValue.serverTimestamp(),
     version: '1.0.0'
   }, { merge: true });
 
   printSuccess('Agent configuration initialized');
+  printSuccess('Security keys generated (jwtSecret, sessionSecret, credentialEncryptionKey)');
 }
 
 /**
