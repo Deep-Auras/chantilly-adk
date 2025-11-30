@@ -21,10 +21,26 @@ const DEFAULT_TRIGGERS = [
   // Service/Tool Building Intent
   { phrase: 'Build a new system service', category: 'build_service' },
   { phrase: 'Create a new service', category: 'build_service' },
+  { phrase: 'Create a new system service', category: 'build_service' },
   { phrase: 'Build a new tool', category: 'build_tool' },
   { phrase: 'Create a new tool', category: 'build_tool' },
   { phrase: 'Add a new feature', category: 'build_feature' },
   { phrase: 'Implement a new feature', category: 'build_feature' },
+  { phrase: 'Write a new service for', category: 'build_service' },
+  { phrase: 'Implement a service for', category: 'build_service' },
+  { phrase: 'Create an integration for', category: 'build_service' },
+
+  // Documentation-driven development
+  { phrase: 'Read the documentation and create', category: 'build_service' },
+  { phrase: 'Read the docs and build', category: 'build_service' },
+  { phrase: 'Based on this documentation create', category: 'build_service' },
+  { phrase: 'Use this API reference to build', category: 'build_service' },
+  { phrase: 'Following the docs implement', category: 'build_service' },
+
+  // File Creation Intent
+  { phrase: 'Create a new file', category: 'build_feature' },
+  { phrase: 'Write a new file', category: 'build_feature' },
+  { phrase: 'Add a new file to', category: 'build_feature' },
 
   // Modification Intent
   { phrase: 'Modify system tool', category: 'modify_tool' },
@@ -53,7 +69,7 @@ class BuildModeTriggerService {
     this.db = getFirestore();
     this.FieldValue = getFieldValue();
     this.triggerEmbeddings = new Map(); // Cached trigger embeddings
-    this.similarityThreshold = 0.75;
+    this.similarityThreshold = 0.65; // Lowered from 0.75 for better trigger sensitivity
     this.initialized = false;
     this.initializationPromise = null;
   }
@@ -79,7 +95,7 @@ class BuildModeTriggerService {
       const configDoc = await this.db.doc('agent/build-mode-triggers').get();
 
       let triggers = DEFAULT_TRIGGERS;
-      let threshold = 0.75;
+      let threshold = 0.65; // Lowered from 0.75 for better sensitivity
 
       if (configDoc.exists) {
         const config = configDoc.data();
@@ -94,7 +110,7 @@ class BuildModeTriggerService {
         await this.db.doc('agent/build-mode-triggers').set({
           triggers: DEFAULT_TRIGGERS,
           embedding_model: 'text-embedding-004',
-          similarity_threshold: 0.75,
+          similarity_threshold: 0.65,
           createdAt: this.FieldValue.serverTimestamp()
         });
         logger.info('Created default build mode triggers config');
@@ -212,6 +228,15 @@ class BuildModeTriggerService {
         similarity: bestMatch.similarity
       };
     }
+
+    // Log non-match for debugging
+    logger.info('Build mode trigger not matched', {
+      userMessage: userMessage.substring(0, 100),
+      bestPhrase: bestMatch.phrase,
+      bestSimilarity: bestMatch.similarity?.toFixed(4),
+      threshold: this.similarityThreshold,
+      gap: (this.similarityThreshold - (bestMatch.similarity || 0)).toFixed(4)
+    });
 
     return {
       inject: false,
