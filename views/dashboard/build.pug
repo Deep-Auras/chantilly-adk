@@ -180,11 +180,7 @@ block content
                   span.font-medium.text-gray-900.truncate(x-text="mod.filePath")
                   span.text-xs.px-2.rounded-full(
                     class="py-0.5"
-                    :class="{
-                      'bg-green-100 text-green-800': mod.operation === 'create',
-                      'bg-blue-100 text-blue-800': mod.operation === 'update',
-                      'bg-red-100 text-red-800': mod.operation === 'delete'
-                    }"
+                    :class="{'bg-green-100 text-green-800': mod.operation === 'create', 'bg-blue-100 text-blue-800': mod.operation === 'update', 'bg-red-100 text-red-800': mod.operation === 'delete'}"
                     x-text="mod.operation"
                   )
                 .flex.gap-2.mt-2
