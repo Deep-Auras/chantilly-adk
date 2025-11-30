@@ -312,11 +312,11 @@ block content
               placeholder="your-repository"
             )
 
-          div(x-show="github.enabled")
+          div(x-show="!github.enabled")
             .bg-amber-50.border.border-amber-200.rounded-lg.p-4
               p.text-sm.text-amber-800
                 strong Note:
-                |  GitHub integration is required for Build Mode. Once configured, you can enable Build Mode from the Build dashboard.
+                |  GitHub integration is required for Build Mode. Enable and configure GitHub to access the Build dashboard.
 
           button.w-full.px-4.py-2.bg-gray-800.text-white.rounded-lg.transition-colors(
             @click="savePlatform('github')"

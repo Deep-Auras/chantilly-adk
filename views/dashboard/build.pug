@@ -305,7 +305,7 @@ block content
 
         async checkGitHubStatus() {
           try {
-            const response = await fetch('/api/build/github/status');
+            const response = await fetch('/api/build/github/status', { credentials: 'same-origin' });
             const data = await response.json();
             this.githubConnected = data.connected === true;
             this.githubUser = data.user || '';
@@ -321,7 +321,7 @@ block content
 
         async loadRateLimit() {
           try {
-            const response = await fetch('/api/build/github/rate-limit');
+            const response = await fetch('/api/build/github/rate-limit', { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.rateLimit = {
@@ -336,7 +336,7 @@ block content
 
         async loadBuildStatus() {
           try {
-            const response = await fetch('/api/build/status');
+            const response = await fetch('/api/build/status', { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.buildModeEnabled = data.enabled === true;
@@ -349,7 +349,7 @@ block content
 
         async loadBranches() {
           try {
-            const response = await fetch('/api/build/branches');
+            const response = await fetch('/api/build/branches', { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.branches = data.branches || [];
@@ -361,7 +361,7 @@ block content
 
         async loadCommits() {
           try {
-            const response = await fetch(`/api/build/github/commits/${this.currentBranch}?limit=10`);
+            const response = await fetch(`/api/build/github/commits/${this.currentBranch}?limit=10`, { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.commits = data.commits || [];
@@ -373,7 +373,7 @@ block content
 
         async loadSession() {
           try {
-            const response = await fetch('/api/build/session');
+            const response = await fetch('/api/build/session', { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.session = data.session;
@@ -385,7 +385,7 @@ block content
 
         async loadModifications() {
           try {
-            const response = await fetch('/api/build/modifications');
+            const response = await fetch('/api/build/modifications', { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.pendingModifications = (data.modifications || []).filter(m => !m.userApproved && !m.rejected);
@@ -401,6 +401,7 @@ block content
           try {
             const response = await fetch(endpoint, {
               method: 'POST',
+              credentials: 'same-origin',
               headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': window.csrfToken
@@ -425,6 +426,7 @@ block content
           try {
             const response = await fetch('/api/build/branches/switch', {
               method: 'POST',
+              credentials: 'same-origin',
               headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': window.csrfToken
@@ -447,6 +449,7 @@ block content
           try {
             const response = await fetch('/api/build/branches/create', {
               method: 'POST',
+              credentials: 'same-origin',
               headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': window.csrfToken
@@ -474,6 +477,7 @@ block content
           try {
             const response = await fetch('/api/build/branches/merge', {
               method: 'POST',
+              credentials: 'same-origin',
               headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': window.csrfToken
@@ -503,6 +507,7 @@ block content
           try {
             const response = await fetch(`/api/build/modifications/${modId}/approve`, {
               method: 'POST',
+              credentials: 'same-origin',
               headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': window.csrfToken
@@ -526,6 +531,7 @@ block content
           try {
             const response = await fetch(`/api/build/modifications/${modId}/reject`, {
               method: 'POST',
+              credentials: 'same-origin',
               headers: {
                 'Content-Type': 'application/json',
                 'X-CSRF-Token': window.csrfToken
