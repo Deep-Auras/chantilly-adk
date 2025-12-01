@@ -891,6 +891,11 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         });
       }
 
+      // Check if any tool failed - if so, allow Gemini to retry with different approach
+      const hasFailedTools = toolResults.some(tr =>
+        tr.error || (tr.result && tr.result.success === false)
+      );
+
       const finalRequestConfig = {
         model: getGeminiModelName(),
         contents: finalContents,
@@ -900,23 +905,135 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
             topK: 40,
             topP: 0.95,
             maxOutputTokens: 65536 // Maximum for Gemini 2.5 Pro - allows full transcripts
-          },
-          // Explicitly disable function calling to force text generation
-          // This prevents UNEXPECTED_TOOL_CALL errors when model wants more tools
-          toolConfig: {
-            functionCallingConfig: {
-              mode: 'NONE'
-            }
           }
         }
       };
+
+      // If tools failed and we haven't hit depth limit, allow Gemini to retry
+      if (hasFailedTools && currentDepth < maxDepth) {
+        logger.info('Tool(s) failed - allowing Gemini to retry with tools enabled', {
+          failedTools: toolResults.filter(tr => tr.error || tr.result?.success === false).map(tr => tr.name),
+          currentDepth,
+          maxDepth
+        });
+        // Keep tools enabled so Gemini can retry
+        finalRequestConfig.tools = toolDeclarations;
+      } else {
+        // All tools succeeded or at depth limit - force text generation
+        finalRequestConfig.config.toolConfig = {
+          functionCallingConfig: {
+            mode: 'NONE'
+          }
+        };
+      }
 
       if (systemInstruction) {
         finalRequestConfig.config.systemInstruction = systemInstruction;
       }
 
-      logger.info('Sending final request to Gemini for tool response generation');
+      logger.info('Sending final request to Gemini for tool response generation', {
+        hasFailedTools,
+        toolsEnabled: !finalRequestConfig.config.toolConfig
+      });
       const finalResult = await client.models.generateContent(finalRequestConfig);
+
+      // Check if Gemini wants to call more tools (retry after failure)
+      const retryToolCalls = [];
+      if (finalResult?.candidates?.[0]?.content?.parts) {
+        for (const part of finalResult.candidates[0].content.parts) {
+          if (part.functionCall) {
+            retryToolCalls.push({
+              name: part.functionCall.name,
+              args: part.functionCall.args || {}
+            });
+          }
+        }
+      }
+
+      // If Gemini wants to retry with different tools, execute them recursively
+      if (retryToolCalls.length > 0 && currentDepth < maxDepth) {
+        logger.info('Gemini requesting tool retry after failure', {
+          retryToolNames: retryToolCalls.map(tc => tc.name),
+          currentDepth
+        });
+
+        // Execute retry tool calls
+        const retryResults = [];
+        for (const call of retryToolCalls) {
+          const tool = registry.getTool(call.name);
+          if (tool) {
+            try {
+              const result = await tool.execute(call.args, { ...toolExecutionContext, executionDepth: currentDepth });
+              retryResults.push({ name: call.name, result });
+              logger.info('Retry tool execution successful', { toolName: call.name });
+            } catch (error) {
+              logger.error('Retry tool execution failed', { tool: call.name, error: error.message });
+              retryResults.push({ name: call.name, error: error.message });
+            }
+          }
+        }
+
+        // Combine original and retry results
+        toolResults.push(...retryResults);
+
+        // Build new function response parts for retry
+        const retryFunctionResponseParts = retryResults.map(tr => {
+          let responseData;
+          if (tr.error) {
+            responseData = { error: tr.error, success: false };
+          } else if (typeof tr.result === 'string') {
+            responseData = { content: tr.result, success: true };
+          } else if (tr.result && typeof tr.result === 'object') {
+            const toolSuccess = tr.result.success !== undefined ? tr.result.success : true;
+            responseData = { ...tr.result, success: toolSuccess };
+          } else {
+            responseData = { result: tr.result, success: true };
+          }
+          return {
+            functionResponse: {
+              name: tr.name,
+              response: responseData
+            }
+          };
+        });
+
+        // Send retry results to Gemini for final response
+        const retryContents = [
+          ...finalContents,
+          {
+            role: 'model',
+            parts: retryToolCalls.map(tc => ({ functionCall: { name: tc.name, args: tc.args } }))
+          },
+          {
+            role: 'user',
+            parts: retryFunctionResponseParts
+          }
+        ];
+
+        const retryRequestConfig = {
+          model: getGeminiModelName(),
+          contents: retryContents,
+          config: {
+            generationConfig: { temperature: 0.7, topK: 40, topP: 0.95, maxOutputTokens: 65536 },
+            toolConfig: { functionCallingConfig: { mode: 'NONE' } }
+          }
+        };
+
+        if (systemInstruction) {
+          retryRequestConfig.config.systemInstruction = systemInstruction;
+        }
+
+        const retryFinalResult = await client.models.generateContent(retryRequestConfig);
+        const retryText = extractGeminiText(retryFinalResult, {
+          includeLogging: true,
+          logger: logger.info.bind(logger)
+        }) || retryFinalResult?.text?.() || 'Tool execution completed.';
+
+        return {
+          reply: retryText,
+          toolsUsed: toolResults.map(t => t.name)
+        };
+      }
 
       // Use centralized response extraction with detailed logging
       const finalText = extractGeminiText(finalResult, {

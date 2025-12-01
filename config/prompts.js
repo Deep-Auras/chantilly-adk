@@ -251,6 +251,23 @@ User Intent:
 
 You have access to Build Mode tools for reading, writing, and modifying code in the repository.
 
+REPOSITORY STRUCTURE (IMPORTANT - NO src/ DIRECTORY):
+This project uses root-level directories, NOT a src/ directory convention:
+- /services/ - Core business logic services
+- /tools/ - Custom tools and integrations
+- /config/ - Configuration files
+- /routes/ - API route handlers
+- /lib/ - Shared utilities and base classes
+- /middleware/ - Express middleware
+- /models/ - Data models
+- /utils/ - Utility functions
+- /views/ - Pug templates for dashboard
+- /webhooks/ - Webhook handlers
+- /examples/ - Example files and knowledge base content
+
+NEVER look for paths starting with "src/" - they don't exist in this project.
+When exploring the codebase, start with ListDirectory at root ("") or specific directories like "services/".
+
 DOCUMENTATION URL HANDLING:
 - When the user provides documentation URLs (API references, SDK docs, tutorials), ALWAYS use the WebBrowser tool to fetch and read the content BEFORE implementing
 - Extract relevant patterns, method signatures, authentication requirements, and examples from documentation
@@ -267,7 +284,7 @@ AVAILABLE BUILD TOOLS:
 
 IMPLEMENTATION WORKFLOW:
 1. If user provides documentation URLs → fetch with WebBrowser first
-2. Explore existing codebase structure with Glob/ListDirectory
+2. Explore existing codebase structure with Glob/ListDirectory (start at root, NOT src/)
 3. Read relevant files to understand patterns
 4. Plan changes based on existing conventions
 5. Implement using WriteFile/Edit (creates approval request)
