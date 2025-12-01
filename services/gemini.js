@@ -243,8 +243,6 @@ class GeminiService {
         });
       }
 
-      const isGoogleChat = sanitizedMessageData.platform === 'google-chat';
-
       logger.info('RBAC system configured', {
         rbacSystem: rbacSystem,
         platform: sanitizedMessageData.platform,
@@ -263,35 +261,23 @@ class GeminiService {
           });
           // Continue with default 'user' role (fail-safe)
         }
-      } else if (rbacSystem === 'google-workspace') {
-        // Google Workspace RBAC: Use Google Chat roles for all messages
-        userRole = sanitizedMessageData.userRole || 'user';
-        logger.info('Using Google Workspace RBAC for all messages', {
-          userId: sanitizedMessageData.userId,
-          userRole: userRole
-        });
-      } else if (rbacSystem === 'hybrid') {
-        // Hybrid RBAC: Platform-specific role detection
-        if (isGoogleChat) {
-          // For Google Chat messages, use Google Workspace roles
-          userRole = sanitizedMessageData.userRole || 'user';
-          logger.info('Using Google Workspace user role (hybrid mode)', {
+      } else if (rbacSystem === 'chantilly') {
+        // Chantilly User Management RBAC: Use Firestore users collection
+        // Standalone provider - looks up roles from users collection
+        try {
+          const userDoc = await this.db.collection('users').doc(sanitizedMessageData.userId).get();
+          if (userDoc.exists && userDoc.data().role) {
+            userRole = userDoc.data().role;
+          }
+          logger.info('Using Chantilly User Management RBAC', {
             userId: sanitizedMessageData.userId,
             userRole: userRole
           });
-        } else {
-          // For Bitrix24 messages, use Bitrix24 RBAC
-          try {
-            const userRoleService = getUserRoleService();
-            userRole = await userRoleService.getUserRole(sanitizedMessageData.userId);
-          } catch (error) {
-            logger.error('Failed to fetch Bitrix24 user role, defaulting to user', {
-              userId: sanitizedMessageData.userId,
-              platform: sanitizedMessageData.platform,
-              error: error.message
-            });
-            // Continue with default 'user' role (fail-safe)
-          }
+        } catch (error) {
+          logger.error('Failed to fetch Chantilly user role', {
+            userId: sanitizedMessageData.userId,
+            error: error.message
+          });
         }
       }
 
