@@ -611,27 +611,28 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         const result = await client.models.generateContent(requestConfig);
 
         // Extract function calls from response
+        // IMPORTANT: Preserve original parts with thoughtSignature for Gemini 2.5+
         let toolCalls = [];
+        let originalFunctionCallParts = []; // Preserve for conversation history
         try {
           if (result?.candidates?.[0]?.content?.parts) {
             const parts = result.candidates[0].content.parts;
             for (const part of parts) {
-              if (part.function_call) {
+              if (part.function_call || part.functionCall) {
+                const fc = part.function_call || part.functionCall;
                 toolCalls.push({
-                  name: part.function_call.name,
-                  args: part.function_call.args || {}
+                  name: fc.name,
+                  args: fc.args || {}
                 });
-              } else if (part.functionCall) {
-                toolCalls.push({
-                  name: part.functionCall.name,
-                  args: part.functionCall.args || {}
-                });
+                // Preserve the ORIGINAL part which includes thoughtSignature
+                originalFunctionCallParts.push(part);
               }
             }
           }
         } catch (error) {
           logger.error('Error extracting tool calls', { error: error.message });
           toolCalls = [];
+          originalFunctionCallParts = [];
         }
 
         logger.info('Tool calls extracted', {
@@ -743,11 +744,10 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         // APPEND TO CONVERSATION & CONTINUE LOOP
         // ============================================
         // Add model's function calls to conversation
+        // CRITICAL: Use original parts to preserve thoughtSignature (required by Gemini 2.5+)
         contents.push({
           role: 'model',
-          parts: toolCalls.map(tc => ({
-            functionCall: { name: tc.name, args: tc.args }
-          }))
+          parts: originalFunctionCallParts
         });
 
         // Add function responses to conversation
