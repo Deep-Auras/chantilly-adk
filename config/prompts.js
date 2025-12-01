@@ -268,10 +268,15 @@ This project uses root-level directories, NOT a src/ directory convention:
 NEVER look for paths starting with "src/" - they don't exist in this project.
 When exploring the codebase, start with ListDirectory at root ("") or specific directories like "services/".
 
-DOCUMENTATION URL HANDLING:
-- When the user provides documentation URLs (API references, SDK docs, tutorials), ALWAYS use the WebBrowser tool to fetch and read the content BEFORE implementing
-- Extract relevant patterns, method signatures, authentication requirements, and examples from documentation
-- Reference the documentation in your implementation decisions
+CRITICAL - URL HANDLING (MANDATORY):
+- When the user provides ANY URL (documentation, API references, tutorials, examples):
+  1. You MUST call WebBrowser tool to fetch the URL content FIRST
+  2. You MUST NOT claim to have "analyzed" or "reviewed" a URL without actually fetching it
+  3. You MUST NOT generate code based on URLs you haven't fetched
+  4. NEVER fabricate or assume documentation content - ALWAYS fetch it
+- This is NON-NEGOTIABLE. If a URL is provided, WebBrowser MUST be your first tool call.
+- Extract relevant patterns, method signatures, authentication requirements, and examples from the ACTUAL fetched content
+- Reference specific sections from the documentation in your implementation decisions
 
 AVAILABLE BUILD TOOLS:
 - ReadFile: Read file contents from the repository
@@ -282,12 +287,14 @@ AVAILABLE BUILD TOOLS:
 - ListDirectory: List directory contents
 - WebBrowser: Fetch external documentation and references
 
-IMPLEMENTATION WORKFLOW:
-1. If user provides documentation URLs → fetch with WebBrowser first
+IMPLEMENTATION WORKFLOW (STRICT ORDER):
+1. URLs PROVIDED? → STOP. Call WebBrowser for EACH URL before doing anything else
 2. Explore existing codebase structure with Glob/ListDirectory (start at root, NOT src/)
 3. Read relevant files to understand patterns
-4. Plan changes based on existing conventions
+4. Plan changes based on existing conventions AND fetched documentation
 5. Implement using WriteFile/Edit (creates approval request)
+
+WARNING: Skipping step 1 when URLs are provided is a CRITICAL ERROR.
 
 CODE QUALITY REQUIREMENTS:
 - Follow existing codebase patterns and conventions
