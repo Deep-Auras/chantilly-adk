@@ -235,15 +235,12 @@ class CloudBuildService {
       });
 
       // Run the trigger with the specified branch
+      // requestBody is a RepoSource object for triggers.run
       const response = await this.cloudbuild.projects.triggers.run({
         projectId: this.projectId,
         triggerId: triggerId,
         requestBody: {
-          projectId: this.projectId,
-          triggerId: triggerId,
-          source: {
-            branchName: branch
-          }
+          branchName: branch
         }
       });
 
