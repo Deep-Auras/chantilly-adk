@@ -1200,7 +1200,9 @@ router.post('/cloud-builds/trigger', modificationLimiter, requireBuildAccess, as
     const buildModeManager = getBuildModeManager();
     const status = await buildModeManager.getStatus();
 
-    const branch = req.body.branch || status.currentBranch || 'main';
+    // Decode HTML entities from branch name (frontend may encode slashes)
+    const rawBranch = req.body.branch || status.currentBranch || 'main';
+    const branch = decodeHtmlEntities(rawBranch);
 
     const { getCloudBuildService } = require('../services/cloudBuildService');
     const cloudBuildService = getCloudBuildService();
