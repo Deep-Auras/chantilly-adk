@@ -461,7 +461,7 @@ class GeminiService {
   async executeWithTools(chat, prompt, tools, messageData, systemInstruction, context, toolExecutionContext = {}) {
     // Initialize or increment tool execution depth
     const currentDepth = (toolExecutionContext.executionDepth || 0) + 1;
-    const maxDepth = 5; // Maximum tool execution depth to prevent infinite loops
+    const maxDepth = 30; // Maximum tool execution depth - high for complex Build Mode tasks
     const executionId = `exec-${Date.now()}`;
 
     if (currentDepth > maxDepth) {
@@ -664,8 +664,19 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
             };
           }
 
+          // No text and no tool calls - check if UNEXPECTED_TOOL_CALL at depth limit
+          // If so, break to use the fallback section instead of returning failure
+          const finishReason = result?.candidates?.[0]?.finishReason;
+          if (isAtDepthLimit && finishReason === 'UNEXPECTED_TOOL_CALL') {
+            logger.warn('UNEXPECTED_TOOL_CALL at depth limit, using fallback', {
+              loopDepth,
+              finishReason
+            });
+            break; // Exit loop to use depth limit fallback
+          }
+
           // No text and no tool calls - something went wrong
-          logger.warn('No tool calls and no text response', { loopDepth });
+          logger.warn('No tool calls and no text response', { loopDepth, finishReason });
           return {
             reply: 'Tool execution completed but no response generated.',
             toolsUsed: allToolResults.map(t => t.name)
@@ -811,12 +822,18 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         totalToolsUsed: allToolResults.length
       });
 
-      // Add instruction to generate final response
+      // Add strong instruction to generate final response WITHOUT calling more tools
       contents.push({
         role: 'user',
         parts: [{
-          text: `CRITICAL: Generate a final response summarizing the tool results. Do not request additional tools.
-If tools returned success messages, relay them exactly. If tools returned data, present it clearly to the user.`
+          text: `STOP. DO NOT CALL ANY MORE TOOLS. Generate a final text response NOW.
+
+You have already executed multiple tools. Summarize the results for the user:
+- If tools returned success messages, relay them exactly
+- If tools returned data or content, present it clearly
+- If tools created or modified files, confirm what was done
+
+DO NOT request additional tool calls. Respond with text only.`
         }]
       });
 
@@ -829,14 +846,9 @@ If tools returned success messages, relay them exactly. If tools returned data, 
             topK: 40,
             topP: 0.95,
             maxOutputTokens: 65536
-          },
-          // Include tools but force text generation with mode: 'NONE'
-          tools: [{
-            functionDeclarations: toolDeclarations
-          }],
-          toolConfig: {
-            functionCallingConfig: { mode: 'NONE' }
           }
+          // Deliberately NOT including tools or toolConfig to avoid UNEXPECTED_TOOL_CALL
+          // The strong prompt instruction should guide the model to generate text
         }
       };
 
