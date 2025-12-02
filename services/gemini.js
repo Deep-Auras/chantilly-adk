@@ -583,16 +583,18 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
           }
         };
 
-        // Add tools unless at depth limit
+        // Always include tools in request, but control behavior with mode
+        requestConfig.config.tools = [{
+          functionDeclarations: toolDeclarations
+        }];
+
         if (!isAtDepthLimit) {
-          requestConfig.config.tools = [{
-            functionDeclarations: toolDeclarations
-          }];
           requestConfig.config.toolConfig = {
             functionCallingConfig: { mode: 'AUTO' } // Let Gemini decide
           };
         } else {
           // At depth limit - force text generation
+          // Tools must be present for mode: 'NONE' to work correctly
           requestConfig.config.toolConfig = {
             functionCallingConfig: { mode: 'NONE' }
           };
@@ -828,6 +830,10 @@ If tools returned success messages, relay them exactly. If tools returned data, 
             topP: 0.95,
             maxOutputTokens: 65536
           },
+          // Include tools but force text generation with mode: 'NONE'
+          tools: [{
+            functionDeclarations: toolDeclarations
+          }],
           toolConfig: {
             functionCallingConfig: { mode: 'NONE' }
           }
