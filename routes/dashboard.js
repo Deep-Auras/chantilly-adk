@@ -1665,10 +1665,36 @@ router.post('/api/chat/approve/:modId', async (req, res) => {
       approvedBy: req.user.username
     });
 
+    // Trigger Cloud Build deployment
+    let buildInfo = { triggered: false };
+    try {
+      const { getCloudBuildService } = require('../services/cloudBuildService');
+      const cloudBuildService = getCloudBuildService();
+      buildInfo = await cloudBuildService.triggerBuild(
+        mod.branch,
+        result.commit.sha,
+        req.user.username
+      );
+
+      if (buildInfo.triggered) {
+        logger.info('Cloud Build triggered after approval', {
+          buildId: buildInfo.buildId,
+          branch: mod.branch,
+          commitSha: result.commit.sha?.substring(0, 7)
+        });
+      }
+    } catch (buildError) {
+      logger.warn('Failed to trigger Cloud Build (non-fatal)', {
+        error: buildError.message,
+        modId
+      });
+    }
+
     res.json({
       success: true,
       commitSha: result.commit.sha,
-      commitUrl: result.commit.url
+      commitUrl: result.commit.url,
+      build: buildInfo
     });
   } catch (error) {
     logger.error('Failed to approve code modification', {

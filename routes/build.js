@@ -1128,4 +1128,148 @@ router.post('/triggers/semantic/test', requireBuildAccess, async (req, res) => {
   }
 });
 
+// ============================================================================
+// CLOUD BUILD OPERATIONS
+// ============================================================================
+
+/**
+ * GET /api/build/cloud-builds
+ * List recent Cloud Build deployments
+ */
+router.get('/cloud-builds', requireBuildAccess, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+
+    const { getCloudBuildService } = require('../services/cloudBuildService');
+    const cloudBuildService = getCloudBuildService();
+    const builds = await cloudBuildService.listBuilds(limit);
+
+    res.json({
+      success: true,
+      builds,
+      count: builds.length
+    });
+  } catch (error) {
+    logger.error('Failed to list cloud builds', {
+      error: error.message,
+      requestedBy: req.user?.username
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to list cloud builds'
+    });
+  }
+});
+
+/**
+ * GET /api/build/cloud-builds/:buildId/status
+ * Get status of a specific build
+ */
+router.get('/cloud-builds/:buildId/status', requireBuildAccess, async (req, res) => {
+  try {
+    const { buildId } = req.params;
+
+    const { getCloudBuildService } = require('../services/cloudBuildService');
+    const cloudBuildService = getCloudBuildService();
+    const status = await cloudBuildService.getBuildStatus(buildId);
+
+    res.json({
+      success: true,
+      buildId,
+      ...status
+    });
+  } catch (error) {
+    logger.error('Failed to get build status', {
+      error: error.message,
+      buildId: req.params.buildId
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get build status'
+    });
+  }
+});
+
+/**
+ * POST /api/build/cloud-builds/trigger
+ * Manually trigger a Cloud Build deployment
+ */
+router.post('/cloud-builds/trigger', modificationLimiter, requireBuildAccess, async (req, res) => {
+  try {
+    // Get current branch from build mode or use provided branch
+    const buildModeManager = getBuildModeManager();
+    const status = await buildModeManager.getStatus();
+
+    const branch = req.body.branch || status.currentBranch || 'main';
+
+    const { getCloudBuildService } = require('../services/cloudBuildService');
+    const cloudBuildService = getCloudBuildService();
+
+    logger.info('Manual Cloud Build trigger requested', {
+      triggeredBy: req.user.username,
+      branch
+    });
+
+    const result = await cloudBuildService.triggerBuild(
+      branch,
+      null, // No specific commit SHA for manual trigger
+      req.user.username
+    );
+
+    if (!result.triggered) {
+      return res.status(400).json({
+        success: false,
+        error: result.reason || 'Failed to trigger build'
+      });
+    }
+
+    res.json({
+      success: true,
+      buildId: result.buildId,
+      logUrl: result.logUrl,
+      branch,
+      triggeredBy: req.user.username
+    });
+  } catch (error) {
+    logger.error('Failed to trigger cloud build', {
+      error: error.message,
+      requestedBy: req.user?.username
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to trigger cloud build'
+    });
+  }
+});
+
+/**
+ * GET /api/build/cloud-builds/config
+ * Get Cloud Build configuration (trigger ID, project ID)
+ */
+router.get('/cloud-builds/config', requireBuildAccess, async (_req, res) => {
+  try {
+    const { getCloudBuildService } = require('../services/cloudBuildService');
+    const cloudBuildService = getCloudBuildService();
+
+    const triggerId = await cloudBuildService.getTriggerId();
+    const projectId = await cloudBuildService.getProjectId();
+
+    res.json({
+      success: true,
+      configured: !!triggerId,
+      projectId,
+      triggerId: triggerId ? `${triggerId.substring(0, 8)}...` : null, // Partial for security
+      consoleUrl: projectId ? `https://console.cloud.google.com/cloud-build/builds?project=${projectId}` : null
+    });
+  } catch (error) {
+    logger.error('Failed to get cloud build config', {
+      error: error.message
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get cloud build config'
+    });
+  }
+});
+
 module.exports = router;

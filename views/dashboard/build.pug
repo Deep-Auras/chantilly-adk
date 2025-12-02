@@ -125,8 +125,83 @@ block content
                     span.text-gray-300 |
                     code.text-xs.bg-gray-200.px-1.rounded(x-text="commit.sha.substring(0, 7)")
 
-      //- Right Column: Session Info + Pending Modifications
+      //- Right Column: Cloud Builds + Session Info + Pending Modifications
       .space-y-6
+        //- Cloud Builds Card
+        .bg-white.rounded-lg.shadow.p-6
+          .flex.items-center.justify-between.mb-4
+            h2.text-xl.font-semibold.text-gray-900 Cloud Builds
+            .flex.items-center.gap-2
+              button.px-2.py-1.bg-white.border.border-gray-300.rounded-lg.transition-colors.flex.items-center.gap-1(
+                @click="triggerCloudBuild()"
+                class="hover:bg-gray-50 disabled:opacity-50"
+                :disabled="triggeringBuild"
+                title="Trigger Cloud Build deployment"
+              )
+                template(x-if="triggeringBuild")
+                  svg.w-5.h-5.animate-spin.text-gray-500(fill="none" viewBox="0 0 24 24")
+                    circle.opacity-25(cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4")
+                    path.opacity-75(fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z")
+                template(x-if="!triggeringBuild")
+                  svg.w-5.h-5(xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24")
+                    polygon(fill="#4285f4" points="12.15 16.24 15.67 14.21 15.67 10.15 14.49 9.46 10.97 15.56 12.15 16.24")
+                    polygon(fill="#669df6" points="8.63 10.15 8.63 14.21 9.81 14.89 13.34 8.8 12.15 8.11 8.63 10.15")
+                    polygon(fill="#aecbfa" points="11.46 17.45 7.24 15.01 7.24 10.15 3.49 7.98 3.49 17.18 11.46 21.78 11.46 17.45")
+                    polygon(fill="#aecbfa" points="7.93 8.95 12.15 6.51 16.37 8.95 20.13 6.78 12.15 2.17 4.17 6.78 7.93 8.95")
+                    polygon(fill="#aecbfa" points="17.06 15.01 12.84 17.45 12.84 21.78 20.82 17.18 20.82 7.98 17.06 10.15 17.06 15.01")
+                span.text-sm.text-gray-700(x-text="triggeringBuild ? 'Building...' : 'Deploy'")
+              button.text-sm.text-blue-500(
+                @click="loadCloudBuilds()"
+                class="hover:text-blue-600"
+                title="Refresh builds"
+              )
+                svg.w-4.h-4(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                  path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15")
+
+          //- Cloud Build Console Link
+          template(x-if="cloudBuildConsoleUrl")
+            a.text-xs.text-blue-500.mb-3.block(
+              :href="cloudBuildConsoleUrl"
+              target="_blank"
+              class="hover:text-blue-600"
+            ) View all builds in Cloud Console
+
+          //- Builds List
+          .space-y-2
+            template(x-if="cloudBuilds.length === 0")
+              .text-center.py-4.text-gray-500.text-sm
+                p No recent builds
+
+            template(x-for="build in cloudBuilds" :key="build.buildId")
+              .p-3.bg-gray-50.rounded-lg
+                .flex.items-center.justify-between.mb-1
+                  .flex.items-center.gap-2
+                    //- Status indicator
+                    span.w-2.h-2.rounded-full(
+                      :class="{\
+                        'bg-green-500': build.status === 'SUCCESS',\
+                        'bg-red-500': build.status === 'FAILURE' || build.status === 'TIMEOUT' || build.status === 'CANCELLED',\
+                        'bg-yellow-500': build.status === 'WORKING' || build.status === 'QUEUED',\
+                        'bg-gray-400': !build.status || build.status === 'STATUS_UNKNOWN'\
+                      }"
+                    )
+                    span.text-sm.font-medium(x-text="build.status || 'UNKNOWN'")
+                  a.text-xs.text-blue-500(
+                    :href="build.logUrl"
+                    target="_blank"
+                    class="hover:text-blue-600"
+                  ) View Logs
+                .flex.items-center.gap-2.text-xs.text-gray-500
+                  span(x-text="build.branch")
+                  span.text-gray-300 |
+                  span(x-text="build.triggeredBy || 'system'")
+                  span.text-gray-300 |
+                  span(x-text="formatBuildTime(build.triggeredAt)")
+                template(x-if="build.commitSha")
+                  .text-xs.text-gray-400.mt-1
+                    span Commit:
+                    code.bg-gray-200.px-1.rounded(x-text="build.commitSha?.substring(0, 7)")
+
         //- Active Session Card
         .bg-white.rounded-lg.shadow.p-6
           h2.text-xl.font-semibold.text-gray-900.mb-4 Session Info
@@ -286,6 +361,13 @@ block content
         session: null,
         pendingModifications: [],
 
+        // Cloud Build state
+        cloudBuilds: [],
+        cloudBuildConfigured: false,
+        cloudBuildConsoleUrl: null,
+        triggeringBuild: false,
+        buildRefreshInterval: null,
+
         // Modals
         showNewBranchModal: false,
         showMergeModal: false,
@@ -314,6 +396,30 @@ block content
             await this.loadSession();
             await this.loadModifications();
           }
+          // Load cloud builds regardless of GitHub connection
+          await this.loadCloudBuildConfig();
+          await this.loadCloudBuilds();
+          // Start auto-refresh for in-progress builds
+          this.startBuildRefresh();
+        },
+
+        destroy() {
+          // Clean up interval on component destroy
+          if (this.buildRefreshInterval) {
+            clearInterval(this.buildRefreshInterval);
+          }
+        },
+
+        startBuildRefresh() {
+          // Refresh builds every 30 seconds if there are in-progress builds
+          this.buildRefreshInterval = setInterval(() => {
+            const hasInProgress = this.cloudBuilds.some(b =>
+              b.status === 'QUEUED' || b.status === 'WORKING'
+            );
+            if (hasInProgress) {
+              this.loadCloudBuilds();
+            }
+          }, 30000);
         },
 
         async checkGitHubStatus() {
@@ -568,6 +674,84 @@ block content
           if (!dateStr) return '';
           const date = new Date(dateStr);
           return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        },
+
+        // Cloud Build Methods
+        async loadCloudBuildConfig() {
+          try {
+            const response = await fetch('/api/build/cloud-builds/config', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.cloudBuildConfigured = data.configured;
+              this.cloudBuildConsoleUrl = data.consoleUrl;
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async loadCloudBuilds() {
+          try {
+            const response = await fetch('/api/build/cloud-builds?limit=5', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.cloudBuilds = data.builds || [];
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async triggerCloudBuild() {
+          if (this.triggeringBuild) return;
+          this.triggeringBuild = true;
+          try {
+            const response = await fetch('/api/build/cloud-builds/trigger', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({ branch: this.currentBranch })
+            });
+            const data = await response.json();
+            if (data.success) {
+              // Refresh builds to show the new one
+              await this.loadCloudBuilds();
+              alert('Build triggered successfully! Build ID: ' + data.buildId);
+            } else {
+              alert(data.error || 'Failed to trigger build');
+            }
+          } catch (e) {
+            alert('Failed to trigger build: ' + e.message);
+          }
+          this.triggeringBuild = false;
+        },
+
+        formatBuildTime(timestamp) {
+          if (!timestamp) return 'Unknown';
+          // Handle Firestore timestamp
+          let date;
+          if (timestamp._seconds) {
+            date = new Date(timestamp._seconds * 1000);
+          } else if (typeof timestamp === 'string') {
+            date = new Date(timestamp);
+          } else {
+            return 'Unknown';
+          }
+          // Show relative time for recent builds
+          const now = new Date();
+          const diff = now - date;
+          const minutes = Math.floor(diff / 60000);
+          const hours = Math.floor(diff / 3600000);
+          const days = Math.floor(diff / 86400000);
+
+          if (minutes < 1) return 'Just now';
+          if (minutes < 60) return minutes + 'm ago';
+          if (hours < 24) return hours + 'h ago';
+          if (days < 7) return days + 'd ago';
+          return date.toLocaleDateString();
         }
       }
     }
