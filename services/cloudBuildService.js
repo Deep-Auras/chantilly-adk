@@ -87,19 +87,23 @@ class CloudBuildService {
     await this.initialize();
 
     try {
-      // Get repository info from Firestore
+      // Get repository info from Firestore - check GitHub platform config
       const db = getFirestore();
-      const buildModeDoc = await db.doc('agent/build-mode').get();
-      const configDoc = await db.doc('agent/config').get();
+      const githubConfigDoc = await db.doc('agent/platforms/github/config').get();
 
-      const buildMode = buildModeDoc.data() || {};
-      const config = configDoc.data() || {};
+      const githubConfig = githubConfigDoc.data() || {};
 
-      const repoOwner = buildMode.githubOwner || config.GITHUB_OWNER;
-      const repoName = buildMode.githubRepo || config.GITHUB_REPO;
+      const repoOwner = githubConfig.defaultOwner;
+      const repoName = githubConfig.defaultRepo;
+
+      logger.info('autoDetectTriggerId checking GitHub config', {
+        hasConfig: githubConfigDoc.exists,
+        repoOwner,
+        repoName
+      });
 
       if (!repoOwner || !repoName) {
-        logger.debug('No GitHub repo configured, cannot auto-detect trigger');
+        logger.warn('No GitHub repo configured in platform config, cannot auto-detect trigger');
         return null;
       }
 
@@ -281,14 +285,16 @@ class CloudBuildService {
   async runBuildDirectly(branch, commitSha, triggeredBy) {
     try {
       const db = getFirestore();
-      const configDoc = await db.doc('agent/config').get();
-      const buildModeDoc = await db.doc('agent/build-mode').get();
+      const githubConfigDoc = await db.doc('agent/platforms/github/config').get();
 
-      const config = configDoc.data() || {};
-      const buildMode = buildModeDoc.data() || {};
+      const githubConfig = githubConfigDoc.data() || {};
 
-      const repoOwner = buildMode.githubOwner || config.GITHUB_OWNER || 'Deep-Auras';
-      const repoName = buildMode.githubRepo || config.GITHUB_REPO || 'chantilly-agent-morgan';
+      const repoOwner = githubConfig.defaultOwner;
+      const repoName = githubConfig.defaultRepo;
+
+      if (!repoOwner || !repoName) {
+        throw new Error('GitHub repository not configured in platform settings');
+      }
 
       logger.info('Running Cloud Build directly', {
         repoOwner,
