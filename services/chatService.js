@@ -403,9 +403,24 @@ class ChatService {
         stack: error.stack
       });
 
+      // Provide user-friendly error messages for common API errors
+      let userMessage = error.message;
+      let userError = 'Failed to generate response';
+
+      if (error.message?.includes('503') || error.message?.includes('overloaded')) {
+        userError = 'AI service temporarily unavailable';
+        userMessage = 'The AI model is currently overloaded. Please try again in a few moments.';
+      } else if (error.message?.includes('429') || error.message?.includes('quota')) {
+        userError = 'Rate limit exceeded';
+        userMessage = 'Too many requests. Please wait a moment before trying again.';
+      } else if (error.message?.includes('401') || error.message?.includes('403')) {
+        userError = 'Authentication error';
+        userMessage = 'There was an issue with the AI service configuration. Please contact support.';
+      }
+
       const errorData = JSON.stringify({
-        error: 'Failed to generate response',
-        message: error.message
+        error: userError,
+        message: userMessage
       });
       res.write(`event: error\ndata: ${errorData}\n\n`);
       res.end();
