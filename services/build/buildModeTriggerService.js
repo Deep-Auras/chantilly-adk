@@ -8,6 +8,7 @@ const { getFirestore, getFieldValue } = require('../../config/firestore');
 const { logger } = require('../../utils/logger');
 const embeddingService = require('../embeddingService');
 const { getBuildModeManager } = require('./buildModeManager');
+const { getBuildMemoryService } = require('./buildMemoryService');
 
 // Default trigger phrases with categories
 const DEFAULT_TRIGGERS = [
@@ -221,11 +222,35 @@ class BuildModeTriggerService {
         similarity: bestMatch.similarity.toFixed(4)
       });
 
+      // 6. Retrieve relevant memories for code generation context
+      let memories = [];
+      let memoryGuidance = '';
+      try {
+        const buildMemoryService = getBuildMemoryService();
+        memories = await buildMemoryService.retrieveForCodeGeneration(
+          userMessage,
+          null, // No specific file path from trigger
+          5     // Top 5 memories
+        );
+        memoryGuidance = buildMemoryService.formatMemoriesForPrompt(memories);
+
+        logger.info('Retrieved memories for build mode', {
+          memoryCount: memories.length,
+          hasGuidance: memoryGuidance.length > 0
+        });
+      } catch (memoryError) {
+        logger.warn('Failed to retrieve memories for build mode', {
+          error: memoryError.message
+        });
+      }
+
       return {
         inject: true,
         matchedPhrase: bestMatch.phrase,
         category: bestMatch.trigger.category,
-        similarity: bestMatch.similarity
+        similarity: bestMatch.similarity,
+        memories: memories,
+        memoryGuidance: memoryGuidance
       };
     }
 

@@ -149,10 +149,17 @@ class GeminiService {
 
         if (buildModeCheck.inject) {
           buildModePrompt = await this.promptsModel.getPrompt('buildMode.system');
+
+          // Append memory guidance from ReasoningMemory if available
+          if (buildModeCheck.memoryGuidance) {
+            buildModePrompt = `${buildModePrompt}\n\n${buildModeCheck.memoryGuidance}`;
+          }
+
           logger.info('Build Mode prompt injected', {
             matchedPhrase: buildModeCheck.matchedPhrase,
             category: buildModeCheck.category,
-            similarity: buildModeCheck.similarity?.toFixed(4)
+            similarity: buildModeCheck.similarity?.toFixed(4),
+            memoryCount: buildModeCheck.memories?.length || 0
           });
         }
       } catch (error) {

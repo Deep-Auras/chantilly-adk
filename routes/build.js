@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { verifyToken, sanitizeInput } = require('../middleware/auth');
 const { getBuildModeManager } = require('../services/build/buildModeManager');
 const { getBuildModeTriggerService } = require('../services/build/buildModeTriggerService');
+const { getBuildMemoryService } = require('../services/build/buildMemoryService');
 const { getGitHubService } = require('../services/github/githubService');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
@@ -798,6 +799,9 @@ router.post('/modifications/:modId/approve', modificationLimiter, requireBuildAc
       approvedBy: req.user.username
     });
 
+    // Note: Memory extraction happens after build success/failure, not on approval
+    // Approval only means the user okayed the change - build results determine if it was good
+
     res.json({
       success: true,
       commitSha: result.commit.sha,
@@ -847,6 +851,16 @@ router.post('/modifications/:modId/reject', requireBuildAccess, async (req, res)
       modId,
       rejectedBy: req.user.username,
       reason
+    });
+
+    // Extract memory from rejection (async, don't block response)
+    const modData = modDoc.data();
+    const buildMemoryService = getBuildMemoryService();
+    buildMemoryService.extractFromRejection(modData, reason).catch(err => {
+      logger.warn('Failed to extract memory from rejection', {
+        error: err.message,
+        modId
+      });
     });
 
     res.json({
