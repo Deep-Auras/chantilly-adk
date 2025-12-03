@@ -820,6 +820,151 @@ router.post('/modifications/:modId/approve', modificationLimiter, requireBuildAc
 });
 
 /**
+ * POST /api/build/modifications/approve-batch
+ * Approve and apply multiple modifications in a single commit
+ * This batches all approved files into one commit to trigger only one build
+ */
+router.post('/modifications/approve-batch', modificationLimiter, requireBuildAccess, async (req, res) => {
+  try {
+    const { modIds, commitMessage } = req.body;
+
+    // Validate input
+    if (!modIds || !Array.isArray(modIds) || modIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'modIds must be a non-empty array'
+      });
+    }
+
+    if (modIds.length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot batch more than 50 modifications at once'
+      });
+    }
+
+    const db = getFirestore();
+    const FieldValue = getFieldValue();
+
+    // Fetch all modifications
+    const mods = [];
+    let branch = null;
+
+    for (const modId of modIds) {
+      const modRef = db.collection('code-modifications').doc(modId);
+      const modDoc = await modRef.get();
+
+      if (!modDoc.exists) {
+        return res.status(404).json({
+          success: false,
+          error: `Modification ${modId} not found`
+        });
+      }
+
+      const mod = modDoc.data();
+
+      if (mod.userApproved) {
+        return res.status(400).json({
+          success: false,
+          error: `Modification ${modId} already approved`
+        });
+      }
+
+      // All modifications must be on the same branch
+      if (branch === null) {
+        branch = mod.branch;
+      } else if (mod.branch !== branch) {
+        return res.status(400).json({
+          success: false,
+          error: 'All modifications must be on the same branch'
+        });
+      }
+
+      mods.push({ modId, ref: modRef, data: mod });
+    }
+
+    // Build files array for batch commit
+    const files = [];
+    for (const mod of mods) {
+      if (mod.data.operation === 'delete') {
+        files.push({
+          path: mod.data.filePath,
+          operation: 'delete'
+        });
+      } else {
+        files.push({
+          path: mod.data.filePath,
+          content: mod.data.afterContent,
+          operation: mod.data.operation
+        });
+      }
+    }
+
+    // Create combined commit message if not provided
+    const finalMessage = commitMessage ||
+      `Batch update: ${mods.map(m => m.data.filePath.split('/').pop()).join(', ')}`;
+
+    // Create batch commit
+    const githubService = getGitHubService();
+    const result = await githubService.createBatchCommit(files, finalMessage, branch);
+
+    // Update all modification records
+    const batch = db.batch();
+    for (const mod of mods) {
+      batch.update(mod.ref, {
+        userApproved: true,
+        approvedBy: req.user.username,
+        approvedAt: FieldValue.serverTimestamp(),
+        appliedAt: FieldValue.serverTimestamp(),
+        committedAt: FieldValue.serverTimestamp(),
+        commitSha: result.commit.sha,
+        batchCommit: true
+      });
+    }
+    await batch.commit();
+
+    // Add to session
+    const buildModeManager = getBuildModeManager();
+    const session = await buildModeManager.getCurrentSession(req.user.username);
+    if (session) {
+      await buildModeManager.addCommitToSession(session.sessionId, {
+        sha: result.commit.sha,
+        message: finalMessage
+      });
+      for (const mod of mods) {
+        await buildModeManager.addFileToSession(session.sessionId, {
+          path: mod.data.filePath,
+          status: mod.data.operation === 'create' ? 'created' : mod.data.operation
+        });
+      }
+    }
+
+    logger.info('Batch modifications approved and applied', {
+      modIds,
+      commitSha: result.commit.sha,
+      fileCount: files.length,
+      approvedBy: req.user.username
+    });
+
+    res.json({
+      success: true,
+      commitSha: result.commit.sha,
+      commitUrl: result.commit.url,
+      filesCommitted: files.length
+    });
+  } catch (error) {
+    logger.error('Failed to approve batch modifications', {
+      error: error.message,
+      modIds: req.body.modIds
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
  * POST /api/build/modifications/:modId/reject
  * Reject a modification
  */

@@ -504,6 +504,124 @@ class GitHubService {
   }
 
   /**
+   * Create a batch commit with multiple file changes in a single commit
+   * Uses Git Trees API for atomic multi-file commits
+   *
+   * @param {Array} files - Array of file changes: { path, content, operation: 'create'|'update'|'delete' }
+   * @param {string} message - Commit message
+   * @param {string} branch - Target branch
+   * @returns {Object} Commit result with SHA and URL
+   */
+  async createBatchCommit(files, message, branch = 'main', owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    if (!files || files.length === 0) {
+      throw new Error('No files provided for batch commit');
+    }
+
+    logger.info('Creating batch commit', {
+      fileCount: files.length,
+      branch,
+      paths: files.map(f => f.path)
+    });
+
+    // 1. Get the current commit SHA for the branch
+    const { data: refData } = await this.octokit.rest.git.getRef({
+      owner,
+      repo,
+      ref: `heads/${branch}`
+    });
+    const currentCommitSha = refData.object.sha;
+
+    // 2. Get the tree SHA from the current commit
+    const { data: commitData } = await this.octokit.rest.git.getCommit({
+      owner,
+      repo,
+      commit_sha: currentCommitSha
+    });
+    const baseTreeSha = commitData.tree.sha;
+
+    // 3. Build tree entries for each file
+    const treeEntries = [];
+
+    for (const file of files) {
+      if (file.operation === 'delete') {
+        // For deletes, we set sha to null which removes the file
+        treeEntries.push({
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: null
+        });
+      } else {
+        // For create/update, create a blob first
+        const { data: blobData } = await this.octokit.rest.git.createBlob({
+          owner,
+          repo,
+          content: Buffer.from(file.content, 'utf-8').toString('base64'),
+          encoding: 'base64'
+        });
+
+        treeEntries.push({
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: blobData.sha
+        });
+      }
+    }
+
+    // 4. Create a new tree with all the changes
+    const { data: newTreeData } = await this.octokit.rest.git.createTree({
+      owner,
+      repo,
+      base_tree: baseTreeSha,
+      tree: treeEntries
+    });
+
+    // 5. Create a commit pointing to the new tree
+    const { data: newCommitData } = await this.octokit.rest.git.createCommit({
+      owner,
+      repo,
+      message,
+      tree: newTreeData.sha,
+      parents: [currentCommitSha]
+    });
+
+    // 6. Update the branch reference to point to the new commit
+    await this.octokit.rest.git.updateRef({
+      owner,
+      repo,
+      ref: `heads/${branch}`,
+      sha: newCommitData.sha
+    });
+
+    logger.info('Batch commit created successfully', {
+      commitSha: newCommitData.sha,
+      branch,
+      fileCount: files.length,
+      paths: files.map(f => f.path)
+    });
+
+    // Invalidate tree cache for this branch
+    this.treeCache.delete(`${owner}/${repo}/${branch}`);
+
+    return {
+      commit: {
+        sha: newCommitData.sha,
+        message: newCommitData.message,
+        url: `https://github.com/${owner}/${repo}/commit/${newCommitData.sha}`
+      },
+      files: files.map(f => ({
+        path: f.path,
+        operation: f.operation
+      }))
+    };
+  }
+
+  /**
    * Get the full repository tree (cached)
    * Single API call returns entire repo structure
    */

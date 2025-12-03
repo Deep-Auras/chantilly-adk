@@ -474,7 +474,179 @@ SERVICE RULES:
 - Use logger.info/warn/error (never console.log)
 - Add cleanup() method for graceful shutdown
 - Validate inputs and handle errors with fail-safe defaults
-- Export class, initialize function, and getter function`
+- Export class, initialize function, and getter function
+
+FRONTEND DEVELOPMENT (Pug + Alpine.js):
+Dashboard views use Pug templates with Alpine.js for reactive components.
+
+Key Patterns:
+- Wrap pages in x-data component for centralized state management
+- Use x-model for two-way form binding
+- Use x-show for conditional visibility (with x-cloak to prevent flash)
+- Use x-for with template for loops
+- Include CSRF token in all POST/PUT/PATCH requests via window.csrfToken
+- Handle Firestore timestamps: user.lastLogin._seconds * 1000
+- Disable buttons during async operations: :disabled="saving"
+- Use @click.self on overlay to prevent modal close when clicking content
+
+Working Frontend Example (from views/dashboard/chat.pug):
+
+\`\`\`pug
+extends ../layouts/dashboard
+
+block content
+  div(x-data="chatController()" x-init="init()" @keydown.escape="showSettings = false")
+    .flex.flex-col(style="height: calc(100vh - 12rem)")
+
+      //- Header section
+      .bg-white.rounded-t-lg.shadow.px-6.py-4.border-b.border-gray-200
+        .flex.items-center.justify-between
+          div
+            h2.text-xl.font-semibold.text-gray-900 Chat with #{agentName}
+            p.text-sm.text-gray-600.mt-1(x-show="messageCount > 0" x-cloak)
+              span(x-text="\`\${messageCount} messages\`")
+
+          button.px-4.py-2.text-sm(@click="clearChat()" class="hover:bg-gray-100")
+            span Clear
+
+      //- Conditional content with x-show
+      div(x-show="loading && messages.length === 0" x-cloak)
+        .flex.items-center.justify-center Loading...
+
+      //- Loop with template x-for
+      .space-y-4(x-show="messages.length > 0" x-cloak)
+        template(x-for="(message, index) in messages" :key="message.id || index")
+          div(:class="message.role === 'user' ? 'flex justify-end' : 'flex justify-start'")
+            .max-w-3xl.rounded-lg.px-4.py-3.shadow
+              .prose.prose-sm(x-html="formatMessage(message.content)")
+              .text-xs.mt-2(x-text="formatTimestamp(message.timestamp)")
+
+      //- Template x-if for conditional rendering (removes from DOM)
+      template(x-if="pendingApprovals.length >= 2")
+        .bg-blue-50.border.border-blue-200.rounded-lg.p-4
+          button.px-4.py-2.bg-blue-600.text-white.rounded-md(
+            @click="batchApproveAll()"
+            :disabled="batchApproving"
+            class="hover:bg-blue-700 disabled:opacity-50"
+          )
+            span(x-show="!batchApproving") Approve All
+            span(x-show="batchApproving" x-cloak) Processing...
+
+  script.
+    function chatController() {
+      return {
+        messages: [],
+        loading: true,
+        streaming: false,
+        pendingApprovals: [],
+        batchApproving: false,
+
+        async init() {
+          await this.loadMessages();
+        },
+
+        async loadMessages() {
+          try {
+            const response = await fetch('/dashboard/api/chat/history', {
+              credentials: 'same-origin'
+            });
+            const data = await response.json();
+            this.messages = data.messages || [];
+          } catch (error) {
+            console.error('Failed to load messages:', error);
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        async sendMessage() {
+          // Always include CSRF token in POST requests
+          const response = await fetch('/dashboard/api/chat/send', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.csrfToken  // REQUIRED for all POST/PUT/PATCH
+            },
+            body: JSON.stringify({ message: this.input })
+          });
+          // Handle response...
+        },
+
+        formatTimestamp(ts) {
+          // Handle Firestore timestamps
+          const date = ts._seconds ? new Date(ts._seconds * 1000) : new Date(ts);
+          return date.toLocaleString();
+        },
+
+        formatMessage(content) {
+          // Sanitize and format markdown
+          return marked.parse(content || '');
+        }
+      };
+    }
+\`\`\`
+
+Frontend Rules:
+1. Always extend layouts/dashboard for dashboard pages
+2. Use x-data with named controller function for component state
+3. Use x-init="init()" to run initialization logic
+4. Always use x-cloak with x-show to prevent FOUC (flash of unstyled content)
+5. Include window.csrfToken in all fetch POST/PUT/PATCH headers
+6. Handle Firestore timestamps with _seconds property
+7. Use :disabled for button state during async operations
+8. Use class="hover:X disabled:X" for interactive states
+
+SECURITY DIRECTIVES (MANDATORY):
+All code MUST follow these security patterns:
+
+1. Memory & Resource Management:
+- ALWAYS store setInterval() IDs and clear them in cleanup/SIGTERM
+- ALWAYS add hard limits to caches (max 10K items with LRU eviction)
+- ALWAYS add circuit breakers: 10 retries max, 2-minute timeouts
+
+2. Input Validation (OWASP):
+- ALWAYS validate user input BEFORE Firestore/DB operations
+- ALWAYS whitelist valid categories/enums (no direct user input)
+- ALWAYS add max length checks (titles: 200, content: 50K)
+- NEVER use user input directly in queries without validation
+
+3. Async/Await Error Handling:
+- ALWAYS await promises (no .catch() without await)
+- ALWAYS use Promise.allSettled() for parallel cleanups
+- ALWAYS wrap async operations in try-catch
+
+4. Logging:
+- ALWAYS use logger.info/warn/error with structured objects
+- NEVER use console.log in services/tools/middleware
+- NEVER log full objects that might contain tokens/passwords
+
+5. SSRF Prevention (for external fetches):
+- ALWAYS validate URLs before fetching external content
+- ALWAYS block private IP ranges (127.x, 10.x, 192.168.x)
+- ALWAYS block metadata endpoints (169.254.169.254)
+
+6. Webhook & API Security:
+- ALWAYS validate webhook payloads with required field checks
+- ALWAYS return 400 errors (not 500) for validation failures
+
+Example - Secure vs Vulnerable Patterns:
+\`\`\`javascript
+// VULNERABLE PATTERNS - NEVER USE
+setInterval(() => {}, 1000);              // No cleanup
+while (attempts < maxRetries) {}          // No bounds
+cache.set(key, value);                    // No size limit
+console.log(data);                        // Sensitive data leak
+query.where('category', '==', userInput); // No validation
+
+// SECURE PATTERNS - ALWAYS USE
+let intervalId = setInterval(() => {}, 1000);
+clearInterval(intervalId);                // Clean up in SIGTERM
+while (attempts < Math.min(maxRetries, 10) && elapsed < 120000) {}
+if (cache.size >= MAX_SIZE) evictOldest(); cache.set(key, value);
+logger.info('Processing', { userId: data.id }); // Structured logging
+const validated = validateCategory(userInput);
+query.where('category', '==', validated);
+\`\`\``
   },
 
   grounding: {

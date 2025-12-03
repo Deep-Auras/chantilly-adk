@@ -433,7 +433,8 @@ block content
 
         async loadCommits() {
           try {
-            const response = await fetch(`/api/build/github/commits/${this.currentBranch}?limit=10`, { credentials: 'same-origin' });
+            // URL-encode branch name to handle slashes (e.g., bugfixes/feature-name)
+            const response = await fetch(`/api/build/github/commits/${encodeURIComponent(this.currentBranch)}?limit=10`, { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.commits = data.commits || [];

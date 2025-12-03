@@ -1723,6 +1723,202 @@ router.post('/api/chat/approve/:modId', async (req, res) => {
 });
 
 /**
+ * POST /api/chat/approve-batch
+ * Approve multiple pending code modifications in a single commit
+ * This batches all files into one commit to trigger only one build
+ */
+router.post('/api/chat/approve-batch', async (req, res) => {
+  try {
+    const { modIds, commitMessage } = req.body;
+
+    // Validate input
+    if (!modIds || !Array.isArray(modIds) || modIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'modIds must be a non-empty array'
+      });
+    }
+
+    if (modIds.length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot batch more than 50 modifications at once'
+      });
+    }
+
+    const db = getFirestore();
+    const { getFieldValue } = require('../config/firestore');
+    const FieldValue = getFieldValue();
+
+    // Fetch all modifications
+    const mods = [];
+    let branch = null;
+    let conversationId = null;
+
+    for (const modId of modIds) {
+      const modRef = db.collection('code-modifications').doc(modId);
+      const modDoc = await modRef.get();
+
+      if (!modDoc.exists) {
+        return res.status(404).json({
+          success: false,
+          error: `Modification ${modId} not found`
+        });
+      }
+
+      const mod = modDoc.data();
+
+      if (mod.userApproved) {
+        return res.status(400).json({
+          success: false,
+          error: `Modification ${modId} already approved`
+        });
+      }
+
+      // All modifications must be on the same branch
+      if (branch === null) {
+        branch = mod.branch;
+        conversationId = mod.conversationId;
+      } else if (mod.branch !== branch) {
+        return res.status(400).json({
+          success: false,
+          error: 'All modifications must be on the same branch'
+        });
+      }
+
+      mods.push({ modId, ref: modRef, data: mod });
+    }
+
+    // Build files array for batch commit
+    const files = [];
+    for (const mod of mods) {
+      if (mod.data.operation === 'delete') {
+        files.push({
+          path: mod.data.filePath,
+          operation: 'delete'
+        });
+      } else {
+        files.push({
+          path: mod.data.filePath,
+          content: mod.data.afterContent,
+          operation: mod.data.operation
+        });
+      }
+    }
+
+    // Create combined commit message if not provided
+    const finalMessage = commitMessage ||
+      `Batch update: ${mods.map(m => m.data.filePath.split('/').pop()).join(', ')}`;
+
+    // Create batch commit
+    const { getGitHubService } = require('../services/github/githubService');
+    const githubService = getGitHubService();
+    const result = await githubService.createBatchCommit(files, finalMessage, branch);
+
+    // Update all modification records
+    const batch = db.batch();
+    for (const mod of mods) {
+      batch.update(mod.ref, {
+        userApproved: true,
+        approvedBy: req.user.username,
+        approvedAt: FieldValue.serverTimestamp(),
+        appliedAt: FieldValue.serverTimestamp(),
+        committedAt: FieldValue.serverTimestamp(),
+        commitSha: result.commit.sha,
+        batchCommit: true
+      });
+    }
+    await batch.commit();
+
+    // Add to build session if active
+    try {
+      const { getBuildModeManager } = require('../services/build/buildModeManager');
+      const buildModeManager = getBuildModeManager();
+      const session = await buildModeManager.getCurrentSession(req.user.username);
+      if (session) {
+        await buildModeManager.addCommitToSession(session.sessionId, {
+          sha: result.commit.sha,
+          message: finalMessage
+        });
+        for (const mod of mods) {
+          await buildModeManager.addFileToSession(session.sessionId, {
+            path: mod.data.filePath,
+            status: mod.data.operation === 'create' ? 'created' : mod.data.operation
+          });
+        }
+      }
+    } catch (sessionError) {
+      logger.warn('Failed to add to build session', { error: sessionError.message });
+    }
+
+    logger.info('Batch code modifications approved via chat', {
+      modIds,
+      fileCount: files.length,
+      commitSha: result.commit.sha,
+      approvedBy: req.user.username
+    });
+
+    // Save approval message to chat history
+    if (conversationId) {
+      try {
+        const { getChatService } = require('../services/chatService');
+        const chatService = getChatService();
+        const fileList = mods.map(m => `\`${m.data.filePath}\``).join(', ');
+        const approvalMessage = `✅ **Batch Approved**: ${files.length} files committed\n\nFiles: ${fileList}\n\nCommit: [\`${result.commit.sha.substring(0, 7)}\`](${result.commit.url})`;
+        await chatService.saveMessage(conversationId, {
+          role: 'assistant',
+          content: approvalMessage,
+          userId: null
+        });
+      } catch (chatError) {
+        logger.warn('Failed to save batch approval to chat history', { error: chatError.message });
+      }
+    }
+
+    // Trigger Cloud Build deployment (only once for all files)
+    let buildInfo = { triggered: false };
+    try {
+      const { getCloudBuildService } = require('../services/cloudBuildService');
+      const cloudBuildService = getCloudBuildService();
+      buildInfo = await cloudBuildService.triggerBuild(
+        branch,
+        result.commit.sha,
+        req.user.username
+      );
+
+      if (buildInfo.triggered) {
+        logger.info('Cloud Build triggered after batch approval', {
+          buildId: buildInfo.buildId,
+          branch,
+          commitSha: result.commit.sha?.substring(0, 7),
+          fileCount: files.length
+        });
+      }
+    } catch (buildError) {
+      logger.warn('Failed to trigger Cloud Build (non-fatal)', {
+        error: buildError.message,
+        modIds
+      });
+    }
+
+    res.json({
+      success: true,
+      commitSha: result.commit.sha,
+      commitUrl: result.commit.url,
+      filesCommitted: files.length,
+      build: buildInfo
+    });
+  } catch (error) {
+    logger.error('Failed to approve batch code modifications', {
+      modIds: req.body.modIds,
+      userId: req.user?.id,
+      error: error.message
+    });
+    res.status(500).json({ success: false, error: 'Failed to approve batch modifications' });
+  }
+});
+
+/**
  * POST /api/chat/reject/:modId
  * Reject a pending code modification from chat
  */
