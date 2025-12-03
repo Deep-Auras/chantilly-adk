@@ -1,12 +1,10 @@
-const { GoogleGenAI } = require('@google/genai');
-const { extractGeminiText, getGeminiModelName } = require('../config/gemini');
+const { getGeminiClient, extractGeminiText, getGeminiModelName } = require('../config/gemini');
 const { logger } = require('../utils/logger');
 const { getTaskQueueModel } = require('../models/taskQueue');
 const { getTaskTemplatesModel } = require('../models/taskTemplates');
 const { getWorkerProcessesModel } = require('../models/workerProcesses');
 const { getTaskTemplateLoader } = require('./taskTemplateLoader');
 const { getCloudTasksQueue } = require('./cloudTasksQueue');
-const config = require('../config/env');
 
 /**
  * TaskOrchestrator - Manages complex task execution with template support
@@ -21,19 +19,19 @@ class TaskOrchestrator {
     this.workerProcessesModel = getWorkerProcessesModel();
     this.templateLoader = getTaskTemplateLoader();
     this.cloudTasksQueue = getCloudTasksQueue();
-    this.genAI = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
-    
+    this.genAI = null; // Initialized in initialize() method
+
     // In-memory task queue for immediate processing
     this.pendingTasks = new Map();
-    
+
     // Worker pool management
     this.workerPool = new Map();
     this.maxWorkers = 4;
-    
+
     // Monitoring intervals
     this.monitoringInterval = null;
     this.cleanupInterval = null;
-    
+
     // Statistics
     this.stats = {
       tasksCreated: 0,
@@ -50,18 +48,24 @@ class TaskOrchestrator {
   async initialize() {
     try {
       logger.info('Initializing TaskOrchestrator');
-      
+
+      // Initialize Gemini client from centralized config
+      this.genAI = getGeminiClient();
+      if (!this.genAI) {
+        throw new Error('Gemini client not available. Ensure setup wizard is completed.');
+      }
+
       // Initialize models
       await this.taskQueueModel.initialize();
       await this.templatesModel.initialize();
       await this.workerProcessesModel.initialize();
-      
+
       // Load pending tasks from database
       await this.loadPendingTasks();
-      
+
       // Start monitoring and cleanup intervals
       this.startMonitoring();
-      
+
       logger.info('TaskOrchestrator initialized successfully', {
         maxWorkers: this.maxWorkers,
         pendingTasks: this.pendingTasks.size

@@ -7,6 +7,7 @@ const asana = require('asana');
 const crypto = require('crypto');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
+const { getEncryption } = require('../utils/encryption');
 
 // Morgan Workflow Section Names
 const MORGAN_SECTIONS = {
@@ -19,10 +20,12 @@ const MORGAN_SECTIONS = {
 class AsanaService {
   constructor() {
     this.client = null;
-    this.workspaceGid = process.env.ASANA_WORKSPACE_GID;
-    this.webhookSecret = process.env.ASANA_WEBHOOK_SECRET;
+    this.workspaceGid = null;
+    this.webhookSecret = null;
+    this.botEmail = null;
     this.db = getFirestore();
     this.FieldValue = getFieldValue();
+    this.encryption = getEncryption();
     this.initialized = false;
     this.pollers = new Map(); // For monitoring task execution
   }
@@ -31,10 +34,45 @@ class AsanaService {
     if (this.initialized) return;
 
     try {
+      // Load config from Firestore
+      const platformDoc = await this.db
+        .collection('agent')
+        .doc('platforms')
+        .collection('asana')
+        .doc('config')
+        .get();
+
+      if (!platformDoc.exists) {
+        throw new Error('Asana platform configuration not found in Firestore');
+      }
+
+      const platformConfig = platformDoc.data();
+      this.workspaceGid = platformConfig.workspaceGid;
+      this.botEmail = platformConfig.botEmail;
+
+      // Load credentials from Firestore
+      const credentialsDoc = await this.db.collection('agent').doc('credentials').get();
+      if (!credentialsDoc.exists) {
+        throw new Error('Credentials not found in Firestore');
+      }
+
+      const credentials = credentialsDoc.data();
+
+      // Decrypt webhook secret if encrypted
+      if (credentials.asana_webhook_secret) {
+        this.webhookSecret = await this.encryption.decryptCredential(credentials.asana_webhook_secret);
+      }
+
+      // Decrypt access token
+      if (!credentials.asana_access_token) {
+        throw new Error('Asana access token not found in credentials');
+      }
+      const accessToken = await this.encryption.decryptCredential(credentials.asana_access_token);
+
       // Asana SDK v3.x uses ApiClient pattern
       this.client = asana.ApiClient.instance;
       const token = this.client.authentications['token'];
-      token.accessToken = process.env.ASANA_ACCESS_TOKEN;
+      token.accessToken = accessToken;
 
       // Instantiate API classes
       this.tasksApi = new asana.TasksApi();
@@ -44,7 +82,10 @@ class AsanaService {
       this.projectsApi = new asana.ProjectsApi();
 
       this.initialized = true;
-      logger.info('Asana service initialized');
+      logger.info('Asana service initialized from Firestore config', {
+        workspaceGid: this.workspaceGid,
+        botEmail: this.botEmail
+      });
     } catch (error) {
       logger.error('Failed to initialize Asana service', { error: error.message });
       throw error;
@@ -202,10 +243,8 @@ class AsanaService {
    * Check if Morgan should process this task
    */
   shouldProcessTask(task) {
-    const morganBotEmail = process.env.ASANA_BOT_EMAIL;
-
-    // Check if assigned to Morgan
-    if (task.assignee && task.assignee.email === morganBotEmail) {
+    // Check if assigned to Morgan (botEmail loaded from Firestore)
+    if (task.assignee && task.assignee.email === this.botEmail) {
       return true;
     }
 

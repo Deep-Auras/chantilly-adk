@@ -3,7 +3,19 @@ const { getReasoningMemoryModel } = require('../models/reasoningMemory');
 const { MemoryValidator } = require('./memoryValidator');
 const { FieldValue } = require('@google-cloud/firestore');
 const { logger } = require('../utils/logger');
-const config = require('../config/env');
+const { getConfigManager } = require('./dashboard/configManager');
+
+/**
+ * Get Gemini model name from centralized config
+ */
+async function getGeminiModelName() {
+  const configManager = await getConfigManager();
+  const modelName = await configManager.get('config', 'GEMINI_MODEL');
+  if (!modelName) {
+    throw new Error('GEMINI_MODEL not configured in Firestore agent/config');
+  }
+  return modelName;
+}
 
 class MemoryExtractor {
   constructor() {
@@ -59,8 +71,9 @@ Output Format (JSON array):
 Respond ONLY with the JSON array, no additional text.`;
 
     try {
+      const modelName = await getGeminiModelName();
       const result = await this.client.models.generateContent({
-        model: config.GEMINI_MODEL,
+        model: modelName,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           temperature: 0.1,
@@ -144,8 +157,9 @@ Output Format (JSON array):
 Respond ONLY with the JSON array, no additional text.`;
 
     try {
+      const modelName = await getGeminiModelName();
       const result = await this.client.models.generateContent({
-        model: config.GEMINI_MODEL,
+        model: modelName,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           temperature: 0.1,
@@ -224,8 +238,9 @@ Output Format (JSON array):
 Respond ONLY with the JSON array, no additional text.`;
 
     try {
+      const modelName = await getGeminiModelName();
       const result = await this.client.models.generateContent({
-        model: config.GEMINI_MODEL,
+        model: modelName,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           temperature: 0.1,
@@ -311,8 +326,9 @@ Output Format (JSON array):
 Respond ONLY with the JSON array, no additional text.`;
 
     try {
+      const modelName = await getGeminiModelName();
       const result = await this.client.models.generateContent({
-        model: config.GEMINI_MODEL,
+        model: modelName,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           temperature: 0.1,

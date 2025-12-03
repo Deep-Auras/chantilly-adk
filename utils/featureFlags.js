@@ -1,67 +1,118 @@
 const { logger } = require('./logger');
+const { getFirestore } = require('../config/firestore');
 
 /**
  * Feature Flag System
  *
  * Simple on/off switches for vector search features.
- * All features are fully rolled out (100%).
+ * All features loaded from Firestore agent/config document.
  *
- * Environment Variables:
- * - ENABLE_VECTOR_SEARCH: Enable vector search (default: true)
- * - ENABLE_SEMANTIC_TEMPLATES: Enable semantic template matching (default: true)
- * - ENABLE_SEMANTIC_TOOLS: Enable semantic tool detection (default: true)
+ * Firestore fields (all default to true):
+ * - enableVectorSearch: Enable vector search
+ * - enableSemanticTemplates: Enable semantic template matching
+ * - enableSemanticTools: Enable semantic tool detection
  */
 class FeatureFlags {
+  static cache = null;
+  static cacheTimestamp = 0;
+  static CACHE_TTL = 60000; // 1 minute cache
+
+  /**
+   * Load feature flags from Firestore with caching
+   * @returns {Promise<object>} Feature flag configuration
+   */
+  static async loadFlags() {
+    const now = Date.now();
+
+    // Return cached value if still valid
+    if (this.cache && (now - this.cacheTimestamp) < this.CACHE_TTL) {
+      return this.cache;
+    }
+
+    try {
+      const db = getFirestore();
+      const configDoc = await db.collection('agent').doc('config').get();
+
+      if (!configDoc.exists) {
+        // Default all features enabled
+        this.cache = {
+          enableVectorSearch: true,
+          enableSemanticTemplates: true,
+          enableSemanticTools: true
+        };
+      } else {
+        const config = configDoc.data();
+        this.cache = {
+          enableVectorSearch: config.enableVectorSearch !== false,
+          enableSemanticTemplates: config.enableSemanticTemplates !== false,
+          enableSemanticTools: config.enableSemanticTools !== false
+        };
+      }
+
+      this.cacheTimestamp = now;
+      return this.cache;
+    } catch (error) {
+      logger.error('Failed to load feature flags from Firestore', { error: error.message });
+      // Default to enabled on error
+      return {
+        enableVectorSearch: true,
+        enableSemanticTemplates: true,
+        enableSemanticTools: true
+      };
+    }
+  }
+
   /**
    * Check if vector search should be enabled
-   * @returns {boolean} True if vector search should be used
+   * @returns {Promise<boolean>} True if vector search should be used
    */
-  static shouldUseVectorSearch() {
-    const enabled = process.env.ENABLE_VECTOR_SEARCH !== 'false';
-    if (!enabled) {
+  static async shouldUseVectorSearch() {
+    const flags = await this.loadFlags();
+    if (!flags.enableVectorSearch) {
       logger.debug('Vector search disabled');
     }
-    return enabled;
+    return flags.enableVectorSearch;
   }
 
   /**
    * Check if semantic template matching should be enabled
-   * @returns {boolean} True if semantic templates should be used
+   * @returns {Promise<boolean>} True if semantic templates should be used
    */
-  static shouldUseSemanticTemplates() {
-    const enabled = process.env.ENABLE_SEMANTIC_TEMPLATES !== 'false';
-    if (!enabled) {
+  static async shouldUseSemanticTemplates() {
+    const flags = await this.loadFlags();
+    if (!flags.enableSemanticTemplates) {
       logger.debug('Semantic templates disabled');
     }
-    return enabled;
+    return flags.enableSemanticTemplates;
   }
 
   /**
    * Check if semantic tool triggers should be enabled
-   * @returns {boolean} True if semantic tools should be used
+   * @returns {Promise<boolean>} True if semantic tools should be used
    */
-  static shouldUseSemanticTools() {
-    const enabled = process.env.ENABLE_SEMANTIC_TOOLS !== 'false';
-    if (!enabled) {
+  static async shouldUseSemanticTools() {
+    const flags = await this.loadFlags();
+    if (!flags.enableSemanticTools) {
       logger.debug('Semantic tools disabled');
     }
-    return enabled;
+    return flags.enableSemanticTools;
   }
 
   /**
    * Get all feature flag states for monitoring/debugging
-   * @returns {object} Current feature flag configuration
+   * @returns {Promise<object>} Current feature flag configuration
    */
-  static getFeatureStates() {
+  static async getFeatureStates() {
+    const flags = await this.loadFlags();
     return {
       vectorSearch: {
-        enabled: this.shouldUseVectorSearch()
+        enabled: flags.enableVectorSearch
       },
       semanticTemplates: {
-        enabled: this.shouldUseSemanticTemplates()
+        enabled: flags.enableSemanticTemplates
       },
       semanticTools: {
-        enabled: this.shouldUseSemanticTools()
+        enabled: flags.enableSemanticTools
       }
     };
   }
@@ -69,9 +120,17 @@ class FeatureFlags {
   /**
    * Log feature flag status for debugging
    */
-  static logStatus() {
-    const states = this.getFeatureStates();
+  static async logStatus() {
+    const states = await this.getFeatureStates();
     logger.info('Feature flag status', states);
+  }
+
+  /**
+   * Clear cache (useful for testing or immediate config reload)
+   */
+  static clearCache() {
+    this.cache = null;
+    this.cacheTimestamp = 0;
   }
 }
 

@@ -68,7 +68,7 @@ function propertyLevelAuth(allowedFields) {
 // OWASP API4:2023 - Unrestricted Resource Consumption
 const resourceLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 500, // Limit each IP to 500 requests per windowMs (increased for dashboard usage)
   message: 'Too many requests from this IP',
   standardHeaders: true,
   legacyHeaders: false,
@@ -80,11 +80,16 @@ const resourceLimiter = rateLimit({
     if (forwarded) {
       // Extract first IP and validate format
       const firstIp = forwarded.split(',')[0].trim();
-      // Remove port if present (handle IP:PORT format)
-      const cleanIp = firstIp.replace(/:\d+$/, '');
+      // Remove port if present (handle IP:PORT format, but not IPv6 colons)
+      const cleanIp = firstIp.includes('.') ? firstIp.replace(/:\d+$/, '') : firstIp;
 
-      // Basic IP validation (IPv4/IPv6)
-      if (/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/.test(cleanIp)) {
+      // Basic IP validation - allow IPv4 and any IPv6 format (including compressed)
+      // IPv4: standard dotted notation
+      // IPv6: contains colons, reasonable length, hex chars only
+      const isValidIPv4 = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(cleanIp);
+      const isValidIPv6 = /^[0-9a-fA-F:]+$/.test(cleanIp) && cleanIp.includes(':') && cleanIp.length <= 45;
+
+      if (isValidIPv4 || isValidIPv6) {
         ip = cleanIp;
       }
     }
@@ -118,11 +123,14 @@ const sensitiveOpLimiter = rateLimit({
     if (forwarded) {
       // Extract first IP and validate format
       const firstIp = forwarded.split(',')[0].trim();
-      // Remove port if present (handle IP:PORT format)
-      const cleanIp = firstIp.replace(/:\d+$/, '');
+      // Remove port if present (handle IP:PORT format, but not IPv6 colons)
+      const cleanIp = firstIp.includes('.') ? firstIp.replace(/:\d+$/, '') : firstIp;
 
-      // Basic IP validation (IPv4/IPv6)
-      if (/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/.test(cleanIp)) {
+      // Basic IP validation - allow IPv4 and any IPv6 format (including compressed)
+      const isValidIPv4 = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(cleanIp);
+      const isValidIPv6 = /^[0-9a-fA-F:]+$/.test(cleanIp) && cleanIp.includes(':') && cleanIp.length <= 45;
+
+      if (isValidIPv4 || isValidIPv6) {
         ip = cleanIp;
       }
     }

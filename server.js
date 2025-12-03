@@ -29,6 +29,7 @@ const setupRoutes = require('./routes/setup');
 const bitrixWebhook = require('./webhooks/bitrix');
 const googleChatRoutes = require('./routes/googleChat');
 const asanaRoutes = require('./routes/asana');
+const buildRoutes = require('./routes/build');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -142,8 +143,12 @@ app.use(helmet({
   }
 }));
 app.use(compression());
+
+// CORS: Dashboard and API are same-origin (same Cloud Run service), so CORS is only
+// needed for local development. Allow all origins since webhooks are server-to-server
+// and don't use CORS anyway.
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || false,
+  origin: true, // Reflect request origin (allows all)
   credentials: true,
   maxAge: 86400 // 24 hours
 }));
@@ -485,17 +490,65 @@ dashboardApiRouter.get('/stats', async (req, res) => {
 dashboardApiRouter.get('/activity', async (req, res) => {
   try {
     const db = getFirestore();
+    const limit = parseInt(req.query.limit) || 100;
+
     const logsSnapshot = await db.collection('audit-logs')
       .orderBy('timestamp', 'desc')
-      .limit(10)
+      .limit(limit)
       .get();
 
     const activities = logsSnapshot.docs.map(doc => {
       const data = doc.data();
+      // Format action for display (e.g., "config_update" -> "Config Update")
+      const formattedAction = data.action
+        ? data.action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        : 'Unknown Action';
+
+      // Convert Firestore timestamp to a format the frontend can handle
+      let timestamp = null;
+      if (data.timestamp) {
+        if (data.timestamp.toDate) {
+          // Firestore Timestamp object
+          timestamp = { seconds: Math.floor(data.timestamp.toDate().getTime() / 1000) };
+        } else if (data.timestamp._seconds) {
+          // Already serialized Firestore timestamp
+          timestamp = { seconds: data.timestamp._seconds };
+        } else if (data.timestamp instanceof Date) {
+          // JavaScript Date object
+          timestamp = { seconds: Math.floor(data.timestamp.getTime() / 1000) };
+        } else {
+          // Try parsing as string
+          const parsed = new Date(data.timestamp);
+          if (!isNaN(parsed.getTime())) {
+            timestamp = { seconds: Math.floor(parsed.getTime() / 1000) };
+          }
+        }
+      }
+
+      // Format timestamp as string for dashboard overview display
+      let timestampStr = 'Unknown';
+      if (timestamp && timestamp.seconds) {
+        timestampStr = new Date(timestamp.seconds * 1000).toLocaleString();
+      }
+
       return {
         id: doc.id,
-        message: `${data.action} by ${data.username || 'system'}`,
-        timestamp: data.timestamp?.toDate().toLocaleString() || 'Unknown'
+        // Legacy field for dashboard overview compatibility
+        message: `${formattedAction} by ${data.username || 'System'}`,
+        // Full fields for Activity Logs view
+        action: data.action,
+        username: data.username,
+        userId: data.userId,
+        timestamp: timestamp,
+        timestampStr: timestampStr, // Formatted string for overview display
+        entryId: data.entryId,
+        toolName: data.toolName,
+        section: data.section,
+        platformId: data.platformId,
+        details: data.details,
+        enabled: data.enabled,
+        roles: data.roles,
+        targetUserId: data.targetUserId
       };
     });
 
@@ -516,6 +569,10 @@ app.use('/agent', agentRoutes);
 
 // Knowledge base routes
 app.use('/knowledge', knowledgeRoutes);
+
+// Build mode routes (GitHub integration, code modification)
+app.use('/api/build', buildRoutes);
+logger.info('Build mode routes registered at /api/build');
 
 // Worker routes for Cloud Tasks background processing
 app.use('/worker', workerRoutes);

@@ -15,7 +15,7 @@ class WebBrowserTool extends BaseTool {
     super(context);
 
     this.name = 'WebBrowser';
-    this.description = 'Browse and analyze content from specific URLs. **ALWAYS use this tool when user provides a specific URL**, even when asking about price, availability, or current information. Performs intelligent content extraction including e-commerce metadata (prices, specs, availability) and AI-powered analysis. Do NOT use WebSearch when a URL is provided - use this tool instead.';
+    this.description = 'REQUIRED: Fetch and analyze content from URLs. When user provides ANY URL (documentation, API docs, tutorials, references), you MUST call this tool FIRST before generating any code or claiming to have reviewed the content. NEVER skip this step - fabricating documentation content is a critical error. Use for: API documentation, SDK references, tutorials, external resources. Returns actual page content for analysis.';
     this.userDescription = 'Browse and analyze specific URLs';
     this.category = 'research';
     this.version = '1.0.0';

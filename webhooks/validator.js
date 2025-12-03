@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const joi = require('joi');
-const config = require('../config/env');
 const { logger } = require('../utils/logger');
+const { getConfigManager } = require('../services/dashboard/configManager');
 
 // Bitrix24 webhook event schemas
 const eventSchemas = {
@@ -160,7 +160,7 @@ const genericSchema = joi.object({
   auth: joi.object()
 });
 
-function validateWebhookSignature(req) {
+async function validateWebhookSignature(req) {
   // Determine if this is a Local Application event first
   const eventType = extractEventType(req);
 
@@ -229,10 +229,18 @@ function validateWebhookSignature(req) {
   }
 
   // Only validate against OUTBOUND_SECRET for manual webhook calls
-  const expectedSecret = config.BITRIX24_OUTBOUND_SECRET;
+  // Load from Bitrix24 platform config in Firestore
+  let expectedSecret;
+  try {
+    const configManager = await getConfigManager();
+    const bitrix24Config = await configManager.getPlatform('bitrix24');
+    expectedSecret = bitrix24Config?.outboundSecret;
+  } catch (error) {
+    logger.error('Failed to load Bitrix24 config from Firestore', { error: error.message });
+  }
 
   if (!expectedSecret) {
-    logger.error('BITRIX24_OUTBOUND_SECRET not configured');
+    logger.error('BITRIX24 outboundSecret not configured in platform settings');
     return false;
   }
 
@@ -333,7 +341,7 @@ async function validateWebhook(req, res, next) {
     }
 
     // Validate signature
-    if (!validateWebhookSignature(req)) {
+    if (!await validateWebhookSignature(req)) {
       logger.warn('Webhook signature validation failed', {
         requestId: req.id
       });

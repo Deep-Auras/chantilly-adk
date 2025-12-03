@@ -1,21 +1,65 @@
 const { CloudTasksClient } = require('@google-cloud/tasks');
 const { logger } = require('../utils/logger');
-const config = require('../config/env');
+const { getFirestore } = require('../config/firestore');
 
 /**
  * Simplified Google Cloud Tasks service following 2025 best practices
- * 
+ *
  * This implementation follows the current Cloud Tasks documentation
  * and removes unnecessary complexity around authentication.
+ *
+ * Configuration loaded from Firestore agent/config:
+ * - CLOUD_TASKS_LOCATION
+ * - CLOUD_TASKS_QUEUE
+ * - CLOUD_RUN_SERVICE_URL
  */
 class CloudTasksQueue {
   constructor() {
     // Cloud Tasks client uses default application credentials automatically
     this.client = new CloudTasksClient();
-    this.projectId = config.GOOGLE_CLOUD_PROJECT;
-    this.location = config.CLOUD_TASKS_LOCATION || 'us-central1';
-    this.queueName = config.CLOUD_TASKS_QUEUE || 'chantilly-task-queue';
-    this.serviceUrl = config.CLOUD_RUN_SERVICE_URL;
+    this.projectId = process.env.GOOGLE_CLOUD_PROJECT; // Cloud Run provided
+    this.location = null;
+    this.queueName = null;
+    this.serviceUrl = null;
+    this.initialized = false;
+  }
+
+  /**
+   * Initialize configuration from Firestore
+   */
+  async _ensureInitialized() {
+    if (this.initialized) return;
+
+    try {
+      const db = getFirestore();
+      const configDoc = await db.collection('agent').doc('config').get();
+
+      if (configDoc.exists) {
+        const config = configDoc.data();
+        this.location = config.CLOUD_TASKS_LOCATION || 'us-central1';
+        this.queueName = config.CLOUD_TASKS_QUEUE || 'chantilly-task-queue';
+        this.serviceUrl = config.CLOUD_RUN_SERVICE_URL;
+      } else {
+        // Use defaults if no config
+        this.location = 'us-central1';
+        this.queueName = 'chantilly-task-queue';
+      }
+
+      this.initialized = true;
+      logger.info('CloudTasksQueue initialized from Firestore', {
+        location: this.location,
+        queueName: this.queueName,
+        hasServiceUrl: !!this.serviceUrl
+      });
+    } catch (error) {
+      logger.error('Failed to initialize CloudTasksQueue from Firestore', {
+        error: error.message
+      });
+      // Use defaults on error
+      this.location = 'us-central1';
+      this.queueName = 'chantilly-task-queue';
+      this.initialized = true;
+    }
   }
 
   /**
@@ -24,6 +68,8 @@ class CloudTasksQueue {
    * @returns {Promise<string>} - Task name
    */
   async enqueueTask(taskData) {
+    await this._ensureInitialized();
+
     try {
       const { taskId, templateId, parameters, userId, priority } = taskData;
 
@@ -93,6 +139,8 @@ class CloudTasksQueue {
    * @returns {Promise<Object>} - Queue stats
    */
   async getQueueStats() {
+    await this._ensureInitialized();
+
     try {
       const queuePath = this.client.queuePath(this.projectId, this.location, this.queueName);
       const [queue] = await this.client.getQueue({ name: queuePath });
@@ -116,6 +164,8 @@ class CloudTasksQueue {
    * Ensure the task queue exists (optional - Cloud Tasks can auto-create)
    */
   async ensureQueueExists() {
+    await this._ensureInitialized();
+
     try {
       const parent = this.client.locationPath(this.projectId, this.location);
       const queuePath = this.client.queuePath(this.projectId, this.location, this.queueName);
@@ -180,6 +230,8 @@ class CloudTasksQueue {
    * @returns {Promise<boolean>} - Success status
    */
   async cancelTask(taskName) {
+    await this._ensureInitialized();
+
     try {
       if (!taskName) {
         logger.warn('Cannot cancel task: no task name provided');
@@ -216,6 +268,8 @@ class CloudTasksQueue {
    * Purge all tasks from the queue (for development/testing)
    */
   async purgeQueue() {
+    await this._ensureInitialized();
+
     try {
       const queuePath = this.client.queuePath(this.projectId, this.location, this.queueName);
       

@@ -190,8 +190,9 @@ class ChatService {
    * @param {string} userId - User ID
    * @param {string} userMessage - User's message
    * @param {string} conversationId - Conversation ID
+   * @param {string} [providedUserRole] - Optional pre-determined user role (skips lookup)
    */
-  async streamResponse(res, userId, userMessage, conversationId) {
+  async streamResponse(res, userId, userMessage, conversationId, providedUserRole = null) {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -293,8 +294,13 @@ class ChatService {
       });
 
       // Determine user role for RBAC
-      const userRoleService = getUserRoleService();
-      const userRole = await userRoleService.getUserRole(userId);
+      // Use provided role if available (from dashboard), otherwise lookup from Firestore
+      let userRole = providedUserRole;
+      if (!userRole) {
+        const userRoleService = getUserRoleService();
+        userRole = await userRoleService.getUserRole(userId);
+      }
+      logger.info('User role determined for RBAC', { userId, userRole, wasProvided: !!providedUserRole });
 
       // Send start event
       res.write('event: start\ndata: {"status": "streaming"}\n\n');
@@ -326,6 +332,37 @@ class ChatService {
       const result = await this.gemini.processMessage(messageData, eventData);
       const fullResponse = result?.reply || '';
 
+      // Check for pending approvals in tool results
+      const pendingApprovals = [];
+      if (result?.toolResults && Array.isArray(result.toolResults)) {
+        for (const toolResult of result.toolResults) {
+          if (toolResult.result && toolResult.result.status === 'pending_approval') {
+            pendingApprovals.push({
+              modId: toolResult.result.modId,
+              filePath: toolResult.result.filePath,
+              operation: toolResult.result.operation,
+              diff: toolResult.result.diff,
+              message: toolResult.result.message
+            });
+          }
+        }
+      }
+
+      // Send pending approvals as separate SSE events
+      if (pendingApprovals.length > 0) {
+        logger.info('Pending approvals detected in chat', {
+          userId,
+          conversationId,
+          approvalCount: pendingApprovals.length,
+          modIds: pendingApprovals.map(a => a.modId)
+        });
+
+        for (const approval of pendingApprovals) {
+          const approvalData = JSON.stringify({ approval });
+          res.write(`event: approval\ndata: ${approvalData}\n\n`);
+        }
+      }
+
       // Stream response to client (all at once since processMessage returns complete text)
       if (fullResponse && fullResponse.trim()) {
         const eventData = JSON.stringify({ text: fullResponse });
@@ -344,8 +381,12 @@ class ChatService {
         });
       }
 
-      // Send completion event
-      res.write('event: done\ndata: {"status": "complete"}\n\n');
+      // Send completion event with approval summary
+      const doneData = {
+        status: 'complete',
+        pendingApprovals: pendingApprovals.length
+      };
+      res.write(`event: done\ndata: ${JSON.stringify(doneData)}\n\n`);
       res.end();
 
       logger.info('Chat response streamed successfully', {

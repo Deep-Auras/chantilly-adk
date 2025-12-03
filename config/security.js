@@ -43,8 +43,10 @@ const securityHeaders = {
   referrerPolicy: 'strict-origin-when-cross-origin',
 
   // Cross-origin resource sharing
+  // CORS allows all origins - dashboard/API are same-origin on Cloud Run,
+  // and webhooks are server-to-server (no CORS needed)
   cors: {
-    origin: config.ALLOWED_ORIGINS ? config.ALLOWED_ORIGINS.split(',') : false,
+    origin: true, // Allow all origins
     credentials: true,
     maxAge: 86400, // 24 hours
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

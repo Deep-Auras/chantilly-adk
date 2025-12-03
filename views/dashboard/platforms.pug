@@ -6,7 +6,7 @@ block content
     .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
       div
         h1.text-3xl.font-bold.text-gray-900 Platform Integrations
-        p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, Asana, and Bluesky integrations
+        p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, Asana, Bluesky, and GitHub integrations
 
   //- Platform Cards (Alpine.js reactive)
   div(x-data="platformsManager()")
@@ -228,6 +228,101 @@ block content
             class="hover:bg-sky-700"
           ) Save Bluesky Config
 
+      //- GitHub Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.flex.items-center.justify-center
+            svg.w-12.h-12(fill="#000000" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg")
+              path(d="M24.92 12.183c0-1.586-.604-2.864-1.585-3.83.172-.547.398-1.763-.229-3.321 0 0-1.114-.348-3.628 1.315a12.695 12.695 0 0 0-3.081-.366c-1.154 0-2.322.143-3.409.44-2.596-1.747-3.74-1.391-3.74-1.391-.748 1.847-.287 3.215-.145 3.554-.883.936-1.414 2.133-1.414 3.594 0 1.111.128 2.099.44 2.964l.325.732c.879 1.614 2.606 2.655 5.677 2.983-.434.289-.885.779-1.062 1.612-.594.28-2.475.966-3.603-.944 0 0-.633-1.148-1.842-1.235 0 0-1.174-.017-.08.722 0 0 .782.367 1.326 1.738 0 0 .705 2.342 4.114 1.593v2.417s-.076.857-.867 1.143c0 0-.469.312.034.497 0 0 2.205.174 2.205-1.604v-2.643s-.09-1.047.429-1.404v4.332s-.032 1.031-.576 1.421c0 0-.362.646.433.468 0 0 1.517-.211 1.584-1.967l.035-4.383h.363l.033 4.383c.076 1.748 1.59 1.967 1.59 1.967.793.179.429-.468.429-.468-.54-.389-.579-1.421-.579-1.421v-4.297c.52.402.436 1.369.436 1.369v2.643c0 1.777 2.2 1.604 2.2 1.604.505-.186.036-.498.036-.498-.793-.286-.867-1.143-.867-1.143v-3.461c0-1.346-.574-2.056-1.137-2.435 3.277-.318 4.845-1.368 5.572-2.99-.015.027.26-.726.26-.726.25-.859.325-1.855.325-2.963h-.002z")
+          div
+            h2.text-xl.font-semibold.text-gray-900 GitHub
+            p.text-sm.text-gray-600 Repository management for Build Mode
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="github.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div(x-show="github.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Authentication Type
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              x-model="github.authType"
+            )
+              option(value="personal-token") Personal Access Token
+              option(value="github-app") GitHub App
+
+          //- Personal Access Token fields
+          div(x-show="github.enabled && github.authType === 'personal-token'")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Personal Access Token
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="password"
+              x-model="github.accessToken"
+              :placeholder="hasGithubAccessToken ? '••••••••••••••••••••• (configured)' : 'ghp_xxxxxxxxxxxx'"
+            )
+            p.text-xs.text-gray-500.mt-1 Generate a fine-grained token with 'contents' and 'metadata' permissions
+
+          //- GitHub App fields
+          div(x-show="github.enabled && github.authType === 'github-app'")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 App ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="github.appId"
+              placeholder="1234567"
+            )
+            p.text-xs.text-gray-500.mt-1 Found in GitHub App settings page (numeric ID, not Client ID)
+
+          div(x-show="github.enabled && github.authType === 'github-app'")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Installation ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="github.installationId"
+              placeholder="12345678"
+            )
+            p.text-xs.text-gray-500.mt-1 Found in the URL when you install the app: github.com/settings/installations/[ID]
+
+          div(x-show="github.enabled && github.authType === 'github-app'")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Private Key
+            textarea.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              rows="4"
+              x-model="github.privateKey"
+              :placeholder="hasGithubPrivateKey ? '••••••••••••••••••••• (configured)' : '-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----'"
+            )
+            p.text-xs.text-gray-500.mt-1 Paste the full contents of your .pem file including headers
+
+          //- Repository settings (shown for both auth types)
+          div(x-show="github.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Repository Owner
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="github.defaultOwner"
+              placeholder="your-username-or-org"
+            )
+
+          div(x-show="github.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Repository Name
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="github.defaultRepo"
+              placeholder="your-repository"
+            )
+
+          div(x-show="!github.enabled")
+            .bg-amber-50.border.border-amber-200.rounded-lg.p-4
+              p.text-sm.text-amber-800
+                strong Note:
+                |  GitHub integration is required for Build Mode. Enable and configure GitHub to access the Build dashboard.
+
+          button.w-full.px-4.py-2.bg-gray-800.text-white.rounded-lg.transition-colors(
+            @click="savePlatform('github')"
+            class="hover:bg-gray-900"
+          ) Save GitHub Config
+
   //- Alpine.js Platforms Manager
   script.
     function platformsManager() {
@@ -253,10 +348,22 @@ block content
           appPassword: '',
           serviceUrl: '#{bluesky.serviceUrl || "https://bsky.social"}'
         },
+        github: {
+          enabled: #{github.enabled || false},
+          authType: '#{github.authType || "personal-token"}',
+          accessToken: '',
+          appId: '#{github.appId || ""}',
+          installationId: '#{github.installationId || ""}',
+          privateKey: '',
+          defaultOwner: '#{github.defaultOwner || ""}',
+          defaultRepo: '#{github.defaultRepo || ""}'
+        },
         // Credential existence flags for masked placeholders
         hasAsanaAccessToken: #{hasAsanaAccessToken || false},
         hasAsanaWebhookSecret: #{hasAsanaWebhookSecret || false},
         hasBlueskyAppPassword: #{hasBlueskyAppPassword || false},
+        hasGithubAccessToken: #{hasGithubAccessToken || false},
+        hasGithubPrivateKey: #{hasGithubPrivateKey || false},
 
         async savePlatform(platformId) {
           try {

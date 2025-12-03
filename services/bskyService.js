@@ -230,12 +230,9 @@ class BskyService {
     this.encryption = getEncryption();
     this.initialized = false;
 
-    // Rate limiting
-    const rateLimit = parseInt(process.env.BLUESKY_RATE_LIMIT_PER_MINUTE) || 100;
-    const followLimit = parseInt(process.env.BLUESKY_FOLLOW_LIMIT_PER_DAY) || 50;
-
-    this.rateLimiter = new RateLimiter(rateLimit, 60000); // Per minute
-    this.followLimiter = new DailyLimiter(followLimit);
+    // Rate limiting - will be initialized from Firestore
+    this.rateLimiter = null;
+    this.followLimiter = null;
 
     // Profile cache (LRU eviction)
     this.profileCache = new LRUCache(1000);
@@ -245,8 +242,8 @@ class BskyService {
     this.refreshAttempts = 0;
     this.maxRefreshAttempts = 3;
 
-    // Service URL
-    this.serviceUrl = process.env.BLUESKY_SERVICE_URL || 'https://bsky.social';
+    // Service URL - will be loaded from Firestore
+    this.serviceUrl = null;
   }
 
   /**
@@ -273,6 +270,18 @@ class BskyService {
 
       // Get service URL from config (fallback to default)
       this.serviceUrl = platformConfig.serviceUrl || 'https://bsky.social';
+
+      // Initialize rate limiters from Firestore config (with defaults)
+      const rateLimit = parseInt(platformConfig.rateLimitPerMinute) || 100;
+      const followLimit = parseInt(platformConfig.followLimitPerDay) || 50;
+      this.rateLimiter = new RateLimiter(rateLimit, 60000); // Per minute
+      this.followLimiter = new DailyLimiter(followLimit);
+
+      logger.info('Bluesky rate limits loaded from Firestore', {
+        rateLimitPerMinute: rateLimit,
+        followLimitPerDay: followLimit,
+        serviceUrl: this.serviceUrl
+      });
 
       // Create agent
       this.agent = new BskyAgent({ service: this.serviceUrl });
@@ -326,13 +335,13 @@ class BskyService {
       }
 
       // Decrypt tokens
-      if (!this.encryption.isEnabled()) {
+      if (!await this.encryption.isEnabledAsync()) {
         logger.error('Encryption not enabled, cannot decrypt session');
         return false;
       }
 
-      const accessJwt = this.encryption.decrypt(data.accessJwt);
-      const refreshJwt = this.encryption.decrypt(data.refreshJwt);
+      const accessJwt = await this.encryption.decrypt(data.accessJwt);
+      const refreshJwt = await this.encryption.decrypt(data.refreshJwt);
 
       // Resume session
       await this.agent.resumeSession({
@@ -390,12 +399,12 @@ class BskyService {
       const encryptedPassword = credentialsDoc.data().bluesky_app_password;
 
       // Decrypt app password
-      if (!this.encryption.isEnabled()) {
+      if (!await this.encryption.isEnabledAsync()) {
         logger.error('Encryption not enabled, cannot decrypt Bluesky credentials');
         return false;
       }
 
-      const appPassword = this.encryption.decryptCredential(encryptedPassword);
+      const appPassword = await this.encryption.decryptCredential(encryptedPassword);
 
       // Login
       logger.info('Creating Bluesky session', { handle });
@@ -452,14 +461,14 @@ class BskyService {
       throw new Error('No session to save');
     }
 
-    if (!this.encryption.isEnabled()) {
+    if (!await this.encryption.isEnabledAsync()) {
       throw new Error('Encryption not enabled, cannot save session');
     }
 
     try {
       // Encrypt tokens
-      const encryptedAccessJwt = this.encryption.encrypt(this.session.accessJwt);
-      const encryptedRefreshJwt = this.encryption.encrypt(this.session.refreshJwt);
+      const encryptedAccessJwt = await this.encryption.encrypt(this.session.accessJwt);
+      const encryptedRefreshJwt = await this.encryption.encrypt(this.session.refreshJwt);
 
       // Calculate expiry (access tokens typically expire in 2 hours)
       const sessionExpiry = new Date(Date.now() + 2 * 60 * 60 * 1000);
@@ -510,7 +519,7 @@ class BskyService {
 
       if (sessionData) {
         // Decrypt from provided session data
-        refreshJwt = this.encryption.decrypt(sessionData.refreshJwt);
+        refreshJwt = await this.encryption.decrypt(sessionData.refreshJwt);
       } else if (this.session) {
         // Use current session
         refreshJwt = this.session.refreshJwt;

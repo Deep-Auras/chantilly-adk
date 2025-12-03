@@ -211,7 +211,7 @@ class ContextValidator {
       return result;
     }
 
-    const allowedFields = ['userId', 'message', 'messageId', 'chatId', 'dialogId', 'messageType', 'timestamp'];
+    const allowedFields = ['userId', 'userRole', 'userName', 'message', 'messageId', 'chatId', 'dialogId', 'messageType', 'timestamp', 'platform'];
     
     allowedFields.forEach(field => {
       if (messageData[field] !== undefined) {

@@ -51,7 +51,7 @@ class ConfigManager {
       this.initialized = true;
       logger.info('ConfigManager initialized', {
         cacheTTL: `${this.cacheTimeout / 1000}s`,
-        encryptionEnabled: this.encryption.isEnabled()
+        encryptionEnabled: await this.encryption.isEnabledAsync()
       });
     } catch (error) {
       logger.error('ConfigManager initialization failed', {
@@ -152,11 +152,11 @@ class ConfigManager {
 
     // Check if it's encrypted
     if (typeof encrypted === 'string' && encrypted.startsWith('encrypted:')) {
-      if (!this.encryption.isEnabled()) {
+      if (!await this.encryption.isEnabledAsync()) {
         throw new Error('Encryption key not configured. Cannot decrypt credentials.');
       }
 
-      return this.encryption.decryptCredential(encrypted);
+      return await this.encryption.decryptCredential(encrypted);
     }
 
     // Not encrypted, return as-is
@@ -217,11 +217,11 @@ class ConfigManager {
    * @returns {Promise<boolean>} Success status
    */
   async updateCredential(key, value, userId = 'system') {
-    if (!this.encryption.isEnabled()) {
+    if (!await this.encryption.isEnabledAsync()) {
       throw new Error('Encryption key not configured. Cannot encrypt credentials.');
     }
 
-    const encrypted = this.encryption.encryptCredential(value);
+    const encrypted = await this.encryption.encryptCredential(value);
     return this.update('credentials', { [key]: encrypted }, userId);
   }
 

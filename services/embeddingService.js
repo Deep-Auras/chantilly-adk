@@ -1,5 +1,6 @@
 const { VertexAIEmbeddings } = require('@langchain/google-vertexai');
 const { logger } = require('../utils/logger');
+const { getVertexAILocation } = require('../config/gemini');
 
 /**
  * EmbeddingService - Centralized embedding generation with caching
@@ -13,11 +14,8 @@ const { logger } = require('../utils/logger');
  */
 class EmbeddingService {
   constructor() {
-    this.embeddings = new VertexAIEmbeddings({
-      model: 'text-embedding-004',
-      project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.VERTEX_AI_LOCATION || 'us-central1'
-    });
+    this.embeddings = null; // Lazy initialized
+    this.initialized = false;
 
     // Multi-tier caching for cost optimization
     this.cache = new Map(); // In-memory cache
@@ -35,14 +33,31 @@ class EmbeddingService {
     this.metricsReportInterval = 3600000; // Report every hour
     this.lastMetricsReport = Date.now();
 
-    logger.info('EmbeddingService initialized', {
-      model: 'text-embedding-004',
-      project: process.env.GOOGLE_CLOUD_PROJECT,
-      location: process.env.VERTEX_AI_LOCATION || 'us-central1',
-      cacheMaxSize: this.cacheMaxSize,
-      cacheTTL: `${this.cacheMaxAge / 1000}s`,
-      metricsEnabled: true
-    });
+    logger.info('EmbeddingService constructor called (lazy init)');
+  }
+
+  /**
+   * Initialize embeddings client with config from Firestore
+   */
+  _ensureInitialized() {
+    if (!this.initialized) {
+      const location = getVertexAILocation();
+      this.embeddings = new VertexAIEmbeddings({
+        model: 'text-embedding-004',
+        project: process.env.GOOGLE_CLOUD_PROJECT,
+        location: location
+      });
+      this.initialized = true;
+
+      logger.info('EmbeddingService initialized', {
+        model: 'text-embedding-004',
+        project: process.env.GOOGLE_CLOUD_PROJECT,
+        location: location,
+        cacheMaxSize: this.cacheMaxSize,
+        cacheTTL: `${this.cacheMaxAge / 1000}s`,
+        metricsEnabled: true
+      });
+    }
   }
 
   /**
@@ -52,6 +67,8 @@ class EmbeddingService {
    * @returns {Promise<number[]>} 768-dimensional vector
    */
   async embedQuery(text, taskType = 'RETRIEVAL_QUERY') {
+    this._ensureInitialized();
+
     if (!text || typeof text !== 'string') {
       throw new Error('Text must be a non-empty string');
     }
@@ -133,6 +150,8 @@ class EmbeddingService {
    * @returns {Promise<number[][]>} Array of 768-dimensional vectors
    */
   async embedDocuments(documents) {
+    this._ensureInitialized();
+
     if (!Array.isArray(documents) || documents.length === 0) {
       throw new Error('Documents must be a non-empty array');
     }

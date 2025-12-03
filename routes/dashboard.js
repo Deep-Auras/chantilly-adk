@@ -83,14 +83,27 @@ router.use(async (req, res, next) => {
     res.locals.user = req.user;
   }
 
-  // Load agent name from database config (falls back to env var, then default)
+  // Load agent name from database config (NO ENV VAR FALLBACK)
   try {
     const configManager = await getConfigManager();
     const config = await configManager.get('config');
-    res.locals.agentName = config?.AGENT_NAME || process.env.AGENT_NAME || 'Clementine';
+    res.locals.agentName = config?.AGENT_NAME || 'Clementine';
   } catch (error) {
-    // Fallback to env var or default if config loading fails
-    res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
+    // Fallback to default if config loading fails
+    res.locals.agentName = 'Clementine';
+    logger.warn('Failed to load agent name from Firestore config', { error: error.message });
+  }
+
+  // Check if Build Mode is enabled globally (for sidebar styling)
+  // Lazy require to avoid loading GitHub service chain on startup
+  try {
+    const { getBuildModeManager } = require('../services/build/buildModeManager');
+    const buildModeManager = getBuildModeManager();
+    const buildModeEnabled = await buildModeManager.isBuildModeEnabled();
+    res.locals.buildModeEnabled = buildModeEnabled;
+  } catch (error) {
+    // Build mode not available or error checking
+    res.locals.buildModeEnabled = false;
   }
 
   next();
@@ -222,6 +235,7 @@ router.get('/platforms', requireAdmin, async (req, res) => {
     const googleChatConfig = await configManager.getPlatform('google-chat');
     const asanaConfig = await configManager.getPlatform('asana');
     const blueskyConfig = await configManager.getPlatform('bluesky');
+    const githubConfig = await configManager.getPlatform('github');
 
     // Check if encrypted credentials exist (for showing masked placeholders)
     const credentialsDoc = await getFirestore().collection('agent').doc('credentials').get();
@@ -235,11 +249,14 @@ router.get('/platforms', requireAdmin, async (req, res) => {
       googleChat: googleChatConfig || {},
       asana: asanaConfig || {},
       bluesky: blueskyConfig || {},
+      github: githubConfig || {},
       // Credential existence flags for masked placeholders
       hasAsanaAccessToken: !!credentials.asana_access_token,
       hasAsanaWebhookSecret: !!credentials.asana_webhook_secret,
       hasBlueskyAppPassword: !!credentials.bluesky_app_password,
-      hasBitrix24WebhookUrl: !!credentials.bitrix24_webhook_url
+      hasBitrix24WebhookUrl: !!credentials.bitrix24_webhook_url,
+      hasGithubAccessToken: !!credentials.github_access_token,
+      hasGithubPrivateKey: !!credentials.github_private_key
     });
   } catch (error) {
     logger.error('Platforms dashboard error', {
@@ -405,6 +422,26 @@ router.get('/tools', async (req, res) => {
       userId: req.user.id
     });
     req.flash('error', 'Failed to load tools');
+    res.redirect('/dashboard');
+  }
+});
+
+/**
+ * Build Mode Dashboard
+ * GET /dashboard/build
+ */
+router.get('/build', async (req, res) => {
+  try {
+    res.locals.currentPage = 'build';
+    res.locals.title = 'Build Mode';
+
+    res.render('dashboard/build');
+  } catch (error) {
+    logger.error('Build dashboard error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load build mode dashboard');
     res.redirect('/dashboard');
   }
 });
@@ -740,7 +777,7 @@ router.get('/api/dashboard/stats', async (req, res) => {
  * Dashboard Activity API
  * GET /api/dashboard/activity
  */
-router.get('/api/dashboard/activity', async (req, res) => {
+router.get('/api/dashboard/activity', requireAdmin, async (req, res) => {
   try {
     const db = getFirestore();
     const limit = parseInt(req.query.limit) || 100;
@@ -750,6 +787,11 @@ router.get('/api/dashboard/activity', async (req, res) => {
       .orderBy('timestamp', 'desc')
       .limit(limit)
       .get();
+
+    logger.info('Activity logs query returned', {
+      count: logsSnapshot.docs.length,
+      userId: req.user.id
+    });
 
     const activities = logsSnapshot.docs.map(doc => {
       const data = doc.data();
@@ -774,9 +816,14 @@ router.get('/api/dashboard/activity', async (req, res) => {
   } catch (error) {
     logger.error('Dashboard activity API error', {
       error: error.message,
+      stack: error.stack,
       userId: req.user?.id
     });
-    res.json({ activities: [] }); // Return empty array on error
+    // Return error status instead of empty array to help debugging
+    res.status(500).json({
+      activities: [],
+      error: 'Failed to load activity logs'
+    });
   }
 });
 
@@ -790,7 +837,7 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     const updates = req.body;
 
     // Validate platform ID (whitelist)
-    const validPlatforms = ['bitrix24', 'google-chat', 'asana', 'bluesky'];
+    const validPlatforms = ['bitrix24', 'google-chat', 'asana', 'bluesky', 'github'];
     if (!validPlatforms.includes(platformId)) {
       return res.status(400).json({ error: 'Invalid platform ID' });
     }
@@ -815,6 +862,23 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     if (platformId === 'bluesky' && updates.enabled) {
       if (!updates.handle || !updates.appPassword) {
         return res.status(400).json({ error: 'Handle and app password required for Bluesky' });
+      }
+    }
+
+    // GitHub requires either Personal Access Token OR GitHub App credentials
+    if (platformId === 'github' && updates.enabled) {
+      if (!updates.defaultOwner || !updates.defaultRepo) {
+        return res.status(400).json({ error: 'Repository owner and name required for GitHub' });
+      }
+      const authType = updates.authType || 'personal-token';
+      if (authType === 'personal-token') {
+        if (!updates.accessToken) {
+          return res.status(400).json({ error: 'Access token required for GitHub Personal Access Token authentication' });
+        }
+      } else if (authType === 'github-app') {
+        if (!updates.appId || !updates.installationId || !updates.privateKey) {
+          return res.status(400).json({ error: 'App ID, Installation ID, and Private Key required for GitHub App authentication' });
+        }
       }
     }
 
@@ -855,7 +919,36 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
       );
     }
 
+    // GitHub credential encryption
+    if (platformId === 'github') {
+      if (updates.accessToken) {
+        updates.accessToken = await configManager.updateCredential(
+          'github_access_token',
+          updates.accessToken,
+          req.user.id
+        );
+      }
+      if (updates.privateKey) {
+        updates.privateKey = await configManager.updateCredential(
+          'github_private_key',
+          updates.privateKey,
+          req.user.id
+        );
+      }
+    }
+
     await configManager.updatePlatform(platformId, updates, req.user.id);
+
+    // Reset GitHub service if GitHub config was updated (to pick up new credentials)
+    if (platformId === 'github') {
+      try {
+        const { getGitHubService } = require('../services/github/githubService');
+        const githubService = getGitHubService();
+        githubService.reset();
+      } catch (resetError) {
+        logger.warn('Failed to reset GitHub service', { error: resetError.message });
+      }
+    }
 
     // Audit log
     const db = getFirestore();
@@ -1423,9 +1516,9 @@ router.post('/api/chat/stream', chatRateLimiter, async (req, res) => {
     logger.info('Initializing chat service', { userId: req.user.id });
     const chatService = await require('../services/chatService').initializeChatService();
 
-    logger.info('Starting SSE stream', { userId: req.user.id, conversationId });
-    // Stream response via SSE
-    await chatService.streamResponse(res, req.user.id, message, conversationId);
+    logger.info('Starting SSE stream', { userId: req.user.id, userRole: req.user.role, conversationId });
+    // Stream response via SSE - pass user role to avoid bitrix_users lookup
+    await chatService.streamResponse(res, req.user.id, message, conversationId, req.user.role);
 
     logger.info('SSE stream completed', { userId: req.user.id });
 
@@ -1478,6 +1571,223 @@ router.post('/api/chat/clear', async (req, res) => {
       error: error.message
     });
     res.status(500).json({ error: 'Failed to clear conversation' });
+  }
+});
+
+// ============================================
+// Code Modification Approval Endpoints (Chat)
+// ============================================
+
+/**
+ * POST /api/chat/approve/:modId
+ * Approve a pending code modification from chat
+ */
+router.post('/api/chat/approve/:modId', async (req, res) => {
+  try {
+    const { modId } = req.params;
+
+    if (!modId || typeof modId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid modification ID' });
+    }
+
+    const db = getFirestore();
+    const { getFieldValue } = require('../config/firestore');
+    const FieldValue = getFieldValue();
+
+    const modRef = db.collection('code-modifications').doc(modId);
+    const modDoc = await modRef.get();
+
+    if (!modDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Modification not found' });
+    }
+
+    const mod = modDoc.data();
+
+    if (mod.userApproved) {
+      return res.status(400).json({ success: false, error: 'Modification already approved' });
+    }
+
+    // Apply the modification via GitHub API
+    const { getGitHubService } = require('../services/github/githubService');
+    const githubService = getGitHubService();
+    let result;
+
+    if (mod.operation === 'delete') {
+      const existing = await githubService.getFileContents(mod.filePath, mod.branch);
+      result = await githubService.deleteFile(
+        mod.filePath,
+        mod.commitMessage,
+        mod.branch,
+        existing.sha
+      );
+    } else {
+      result = await githubService.createOrUpdateFile(
+        mod.filePath,
+        mod.afterContent,
+        mod.commitMessage,
+        mod.branch
+      );
+    }
+
+    // Update modification record
+    await modRef.update({
+      userApproved: true,
+      approvedBy: req.user.username,
+      approvedAt: FieldValue.serverTimestamp(),
+      appliedAt: FieldValue.serverTimestamp(),
+      committedAt: FieldValue.serverTimestamp(),
+      commitSha: result.commit.sha
+    });
+
+    // Add to build session if active
+    try {
+      const { getBuildModeManager } = require('../services/build/buildModeManager');
+      const buildModeManager = getBuildModeManager();
+      const session = await buildModeManager.getCurrentSession(req.user.username);
+      if (session) {
+        await buildModeManager.addCommitToSession(session.sessionId, {
+          sha: result.commit.sha,
+          message: mod.commitMessage
+        });
+        await buildModeManager.addFileToSession(session.sessionId, {
+          path: mod.filePath,
+          status: mod.operation === 'create' ? 'created' : mod.operation
+        });
+      }
+    } catch (sessionError) {
+      logger.warn('Failed to add to build session', { error: sessionError.message });
+    }
+
+    logger.info('Code modification approved via chat', {
+      modId,
+      filePath: mod.filePath,
+      commitSha: result.commit.sha,
+      approvedBy: req.user.username
+    });
+
+    // Save approval message to chat history
+    if (mod.conversationId) {
+      try {
+        const { getChatService } = require('../services/chatService');
+        const chatService = getChatService();
+        const approvalMessage = `✅ **Approved**: ${mod.operation === 'create' ? 'Created' : 'Updated'} \`${mod.filePath}\`\n\nCommit: [\`${result.commit.sha.substring(0, 7)}\`](${result.commit.url})`;
+        await chatService.saveMessage(mod.conversationId, {
+          role: 'assistant',
+          content: approvalMessage,
+          userId: null
+        });
+      } catch (chatError) {
+        logger.warn('Failed to save approval to chat history', { error: chatError.message });
+      }
+    }
+
+    // Trigger Cloud Build deployment
+    let buildInfo = { triggered: false };
+    try {
+      const { getCloudBuildService } = require('../services/cloudBuildService');
+      const cloudBuildService = getCloudBuildService();
+      buildInfo = await cloudBuildService.triggerBuild(
+        mod.branch,
+        result.commit.sha,
+        req.user.username
+      );
+
+      if (buildInfo.triggered) {
+        logger.info('Cloud Build triggered after approval', {
+          buildId: buildInfo.buildId,
+          branch: mod.branch,
+          commitSha: result.commit.sha?.substring(0, 7)
+        });
+      }
+    } catch (buildError) {
+      logger.warn('Failed to trigger Cloud Build (non-fatal)', {
+        error: buildError.message,
+        modId
+      });
+    }
+
+    res.json({
+      success: true,
+      commitSha: result.commit.sha,
+      commitUrl: result.commit.url,
+      build: buildInfo
+    });
+  } catch (error) {
+    logger.error('Failed to approve code modification', {
+      modId: req.params.modId,
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({ success: false, error: 'Failed to approve modification' });
+  }
+});
+
+/**
+ * POST /api/chat/reject/:modId
+ * Reject a pending code modification from chat
+ */
+router.post('/api/chat/reject/:modId', async (req, res) => {
+  try {
+    const { modId } = req.params;
+
+    if (!modId || typeof modId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid modification ID' });
+    }
+
+    const db = getFirestore();
+    const { getFieldValue } = require('../config/firestore');
+    const FieldValue = getFieldValue();
+
+    const modRef = db.collection('code-modifications').doc(modId);
+    const modDoc = await modRef.get();
+
+    if (!modDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Modification not found' });
+    }
+
+    const mod = modDoc.data();
+
+    if (mod.userApproved) {
+      return res.status(400).json({ success: false, error: 'Modification already approved, cannot reject' });
+    }
+
+    // Update modification record as rejected
+    await modRef.update({
+      rejected: true,
+      rejectedBy: req.user.username,
+      rejectedAt: FieldValue.serverTimestamp()
+    });
+
+    logger.info('Code modification rejected via chat', {
+      modId,
+      filePath: mod.filePath,
+      rejectedBy: req.user.username
+    });
+
+    // Save rejection message to chat history
+    if (mod.conversationId) {
+      try {
+        const { getChatService } = require('../services/chatService');
+        const chatService = getChatService();
+        const rejectionMessage = `❌ **Rejected**: ${mod.operation === 'create' ? 'Create' : 'Update'} \`${mod.filePath}\` was not applied.`;
+        await chatService.saveMessage(mod.conversationId, {
+          role: 'assistant',
+          content: rejectionMessage,
+          userId: null
+        });
+      } catch (chatError) {
+        logger.warn('Failed to save rejection to chat history', { error: chatError.message });
+      }
+    }
+
+    res.json({ success: true, message: 'Modification rejected' });
+  } catch (error) {
+    logger.error('Failed to reject code modification', {
+      modId: req.params.modId,
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({ success: false, error: 'Failed to reject modification' });
   }
 });
 

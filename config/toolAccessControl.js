@@ -50,7 +50,16 @@ const TOOL_ACCESS_CONTROL = {
   MemoryManagement: ['admin'],
   SimpleTaskCreator: ['admin'],
   TaskManagement: ['admin'],
-  TaskTemplateManager: ['admin']
+  TaskTemplateManager: ['admin'],
+
+  // ===== BUILD MODE TOOLS (Admin only) =====
+  // Agentic development tools for code modification
+  ReadFile: ['admin'],
+  WriteFile: ['admin'],
+  Edit: ['admin'],
+  Glob: ['admin'],
+  Grep: ['admin'],
+  ListDirectory: ['admin']
 };
 
 /**

@@ -4,9 +4,7 @@ const { getTaskQueueModel } = require('../models/taskQueue');
 const { getTaskTemplatesModel } = require('../models/taskTemplates');
 const { getTaskTemplateLoader } = require('../services/taskTemplateLoader');
 const { logger } = require('../utils/logger');
-const { GoogleGenAI } = require('@google/genai');
-const { extractGeminiText, getGeminiModelName } = require('../config/gemini');
-const config = require('../config/env');
+const { getGeminiClient, extractGeminiText, getGeminiModelName } = require('../config/gemini');
 const embeddingService = require('../services/embeddingService');
 const { FieldValue } = require('@google-cloud/firestore');
 const { FeatureFlags } = require('../utils/featureFlags');
@@ -128,12 +126,7 @@ class ComplexTaskManagerTool extends BaseTool {
     this.taskQueueModel = null;
     this.templatesModel = null;
     this.templateLoader = getTaskTemplateLoader();
-    this.genAI = new GoogleGenAI({
-      apiKey: config.GEMINI_API_KEY,
-      requestOptions: {
-        timeout: 900000 // 15 minutes for complex agentic template generation
-      }
-    });
+    this.genAI = null; // Initialized in initialize() method
     this.sanitizer = new PromptSanitizer(); // Security: Sanitize user input before using in prompts
     this.initialized = false;
   }
@@ -145,6 +138,12 @@ class ComplexTaskManagerTool extends BaseTool {
     if (this.initialized) {return;}
 
     try {
+      // Initialize Gemini client from centralized config
+      this.genAI = getGeminiClient();
+      if (!this.genAI) {
+        throw new Error('Gemini client not available. Ensure setup wizard is completed.');
+      }
+
       this.orchestrator = getTaskOrchestrator();
       this.taskQueueModel = getTaskQueueModel();
       this.templatesModel = getTaskTemplatesModel();
@@ -167,7 +166,7 @@ class ComplexTaskManagerTool extends BaseTool {
    * This replaces keyword-based template detection
    */
   async findBestTemplate(description, userId) {
-    const useSemanticTemplates = FeatureFlags.shouldUseSemanticTemplates();
+    const useSemanticTemplates = await FeatureFlags.shouldUseSemanticTemplates();
 
     if (!useSemanticTemplates) {
       this.log('info', 'Semantic template matching disabled by feature flag, using keyword matching');
@@ -3281,14 +3280,11 @@ ${nextStepsMessage}`,
       }
 
       // Use AI to understand and implement modifications
-      const { GoogleGenAI } = require('@google/genai');
-      const config = require('../config/env');
-      const genAI = new GoogleGenAI({
-        apiKey: config.GEMINI_API_KEY,
-        requestOptions: {
-          timeout: 900000 // 15 minutes for complex modifications
-        }
-      });
+      // Use the centralized Gemini client from initialize()
+      const genAI = this.genAI;
+      if (!genAI) {
+        throw new Error('Gemini client not available. Ensure tool is initialized.');
+      }
 
       // Format AI-detected intent for prompt
       const intentContext = modificationIntent ? `

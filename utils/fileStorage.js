@@ -5,13 +5,14 @@
 
 const { Storage } = require('@google-cloud/storage');
 const { logger } = require('./logger');
+const { getFirestore } = require('../config/firestore');
 const path = require('path');
 
 class FileStorageManager {
   constructor() {
     this.storage = null;
     this.bucket = null;
-    this.bucketName = process.env.GCS_BUCKET_NAME || 'chantilly-adk-files';
+    this.bucketName = null; // Will be loaded from Firestore
     this.initialized = false;
   }
 
@@ -22,6 +23,16 @@ class FileStorageManager {
     if (this.initialized) {return;}
 
     try {
+      // Load bucket name from Firestore
+      const db = getFirestore();
+      const configDoc = await db.collection('agent').doc('config').get();
+
+      if (configDoc.exists && configDoc.data().GCS_BUCKET_NAME) {
+        this.bucketName = configDoc.data().GCS_BUCKET_NAME;
+      } else {
+        this.bucketName = 'chantilly-adk-files'; // Default fallback
+      }
+
       // Initialize Cloud Storage client
       this.storage = new Storage({
         projectId: process.env.GOOGLE_CLOUD_PROJECT

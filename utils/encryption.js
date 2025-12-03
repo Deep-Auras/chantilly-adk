@@ -18,35 +18,74 @@ const { logger } = require('./logger');
 
 /**
  * Encryption service using AES-256-GCM
+ * Loads encryption key from Firestore (agent/config/credentialEncryptionKey)
  */
 class Encryption {
   constructor() {
     this.algorithm = 'aes-256-gcm';
+    this.key = null;
+    this.initialized = false;
+    this.initPromise = null;
+  }
 
-    // Load encryption key from environment
-    const keyBase64 = process.env.CREDENTIAL_ENCRYPTION_KEY;
-    if (!keyBase64) {
-      logger.warn('CREDENTIAL_ENCRYPTION_KEY not set, encryption disabled');
-      this.key = null;
-    } else {
-      try {
-        this.key = Buffer.from(keyBase64, 'base64');
+  /**
+   * Initialize encryption key from Firestore
+   * Called lazily on first use
+   */
+  async _ensureInitialized() {
+    if (this.initialized) {
+      return;
+    }
 
-        // Validate key length (must be 32 bytes for AES-256)
-        if (this.key.length !== 32) {
-          throw new Error(`Invalid key length: ${this.key.length} bytes (expected 32)`);
-        }
+    // Prevent multiple concurrent initializations
+    if (this.initPromise) {
+      await this.initPromise;
+      return;
+    }
 
-        logger.info('Encryption initialized', { algorithm: this.algorithm });
-      } catch (error) {
-        logger.error('Failed to initialize encryption', { error: error.message });
-        this.key = null;
+    this.initPromise = this._loadKeyFromFirestore();
+    await this.initPromise;
+  }
+
+  async _loadKeyFromFirestore() {
+    try {
+      const { getFirestore } = require('../config/firestore');
+      const db = getFirestore();
+      const configDoc = await db.collection('agent').doc('config').get();
+
+      if (!configDoc.exists) {
+        logger.warn('agent/config not found, encryption disabled');
+        this.initialized = true;
+        return;
       }
+
+      // Support both field names for backwards compatibility
+      const data = configDoc.data();
+      const keyBase64 = data.CREDENTIAL_ENCRYPTION_KEY || data.credentialEncryptionKey;
+      if (!keyBase64) {
+        logger.warn('CREDENTIAL_ENCRYPTION_KEY not set in Firestore, encryption disabled');
+        this.initialized = true;
+        return;
+      }
+
+      this.key = Buffer.from(keyBase64, 'base64');
+
+      // Validate key length (must be 32 bytes for AES-256)
+      if (this.key.length !== 32) {
+        throw new Error(`Invalid key length: ${this.key.length} bytes (expected 32)`);
+      }
+
+      logger.info('Encryption initialized from Firestore', { algorithm: this.algorithm });
+      this.initialized = true;
+    } catch (error) {
+      logger.error('Failed to initialize encryption from Firestore', { error: error.message });
+      this.key = null;
+      this.initialized = true;
     }
   }
 
   /**
-   * Check if encryption is enabled
+   * Check if encryption is enabled (sync check after initialization)
    * @returns {boolean}
    */
   isEnabled() {
@@ -54,15 +93,26 @@ class Encryption {
   }
 
   /**
+   * Check if encryption is enabled (async, ensures initialization)
+   * @returns {Promise<boolean>}
+   */
+  async isEnabledAsync() {
+    await this._ensureInitialized();
+    return this.key !== null;
+  }
+
+  /**
    * Encrypt text using AES-256-GCM
    *
    * @param {string} text - Plaintext to encrypt
-   * @returns {Object} Encrypted data object with iv, encrypted, authTag
+   * @returns {Promise<Object>} Encrypted data object with iv, encrypted, authTag
    * @throws {Error} If encryption fails or key not set
    */
-  encrypt(text) {
+  async encrypt(text) {
+    await this._ensureInitialized();
+
     if (!this.isEnabled()) {
-      throw new Error('Encryption key not configured. Set CREDENTIAL_ENCRYPTION_KEY environment variable.');
+      throw new Error('Encryption key not configured. Set credentialEncryptionKey in Firestore agent/config.');
     }
 
     if (!text || typeof text !== 'string') {
@@ -101,12 +151,14 @@ class Encryption {
    * @param {string} encryptedData.encrypted - Encrypted hex string
    * @param {string} encryptedData.iv - Initialization vector (hex)
    * @param {string} encryptedData.authTag - Authentication tag (hex)
-   * @returns {string} Decrypted plaintext
+   * @returns {Promise<string>} Decrypted plaintext
    * @throws {Error} If decryption fails (wrong key, tampered data, etc.)
    */
-  decrypt(encryptedData) {
+  async decrypt(encryptedData) {
+    await this._ensureInitialized();
+
     if (!this.isEnabled()) {
-      throw new Error('Encryption key not configured. Set CREDENTIAL_ENCRYPTION_KEY environment variable.');
+      throw new Error('Encryption key not configured. Set credentialEncryptionKey in Firestore agent/config.');
     }
 
     if (!encryptedData || typeof encryptedData !== 'object') {
@@ -156,14 +208,14 @@ class Encryption {
    * Returns string format: "encrypted:AES256:iv:authTag:ciphertext"
    *
    * @param {string} plaintext - Credential to encrypt
-   * @returns {string} Encrypted credential string
+   * @returns {Promise<string>} Encrypted credential string
    */
-  encryptCredential(plaintext) {
+  async encryptCredential(plaintext) {
     if (!plaintext || typeof plaintext !== 'string') {
       throw new Error('Credential must be a non-empty string');
     }
 
-    const { encrypted, iv, authTag } = this.encrypt(plaintext);
+    const { encrypted, iv, authTag } = await this.encrypt(plaintext);
     return `encrypted:AES256:${iv}:${authTag}:${encrypted}`;
   }
 
@@ -172,9 +224,9 @@ class Encryption {
    * Accepts string format: "encrypted:AES256:iv:authTag:ciphertext"
    *
    * @param {string} encryptedString - Encrypted credential string
-   * @returns {string} Decrypted plaintext
+   * @returns {Promise<string>} Decrypted plaintext
    */
-  decryptCredential(encryptedString) {
+  async decryptCredential(encryptedString) {
     if (!encryptedString || typeof encryptedString !== 'string') {
       throw new Error('Encrypted credential must be a non-empty string');
     }
@@ -193,7 +245,7 @@ class Encryption {
 
     const [, , iv, authTag, encrypted] = parts;
 
-    return this.decrypt({ encrypted, iv, authTag });
+    return await this.decrypt({ encrypted, iv, authTag });
   }
 }
 

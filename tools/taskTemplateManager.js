@@ -2,7 +2,7 @@ const BaseTool = require('../lib/baseTool');
 const { getTaskTemplatesModel } = require('../models/taskTemplates');
 const { logger } = require('../utils/logger');
 const { getGeminiClient, extractGeminiText } = require('../config/gemini');
-const config = require('../config/env');
+const { getConfigManager } = require('../services/dashboard/configManager');
 
 /**
  * TaskTemplateManager - Manages task template definitions
@@ -531,8 +531,14 @@ const validInvoices = invoices.filter(invoice => {
 **RESPONSE FORMAT:**
 Return ONLY the modified JavaScript code, starting with the first line of code.`;
 
+      const configManager = await getConfigManager();
+      const geminiModel = await configManager.get('config', 'GEMINI_MODEL');
+      if (!geminiModel) {
+        throw new Error('GEMINI_MODEL not configured in Firestore agent/config');
+      }
+
       const result = await client.models.generateContent({
-        model: config.GEMINI_MODEL || 'gemini-2.0-flash-exp',
+        model: geminiModel,
         contents: [{
           role: 'user',
           parts: [{ text: prompt }]

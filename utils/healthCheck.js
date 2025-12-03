@@ -1,12 +1,12 @@
-const { getFirestore } = require('../config/firestore');
 const { getGeminiModel } = require('../config/gemini');
-const config = require('../config/env');
+const { getConfigManager } = require('../services/dashboard/configManager');
 const axios = require('axios');
 
 async function checkFirestore() {
   try {
-    const db = getFirestore();
-    await db.collection('_health').doc('check').get();
+    // Use configManager to verify Firestore connectivity
+    const configManager = await getConfigManager();
+    await configManager.get('config', 'setupCompleted');
     return { status: 'healthy', latency: 0 };
   } catch (error) {
     return { status: 'unhealthy', error: error.message };
@@ -16,8 +16,10 @@ async function checkFirestore() {
 async function checkGeminiAPI() {
   try {
     const model = getGeminiModel();
-    const result = await model.generateContent('Test');
-    return { status: 'healthy', model: config.GEMINI_MODEL };
+    await model.generateContent('Test');
+    const configManager = await getConfigManager();
+    const geminiModel = await configManager.get('config', 'GEMINI_MODEL');
+    return { status: 'healthy', model: geminiModel || 'configured' };
   } catch (error) {
     return { status: 'unhealthy', error: error.message };
   }
@@ -25,13 +27,23 @@ async function checkGeminiAPI() {
 
 async function checkBitrix24API() {
   try {
-    const response = await axios.get(
-      `${config.BITRIX24_INBOUND_WEBHOOK}profile`,
+    const configManager = await getConfigManager();
+    const bitrix24 = await configManager.getPlatform('bitrix24');
+
+    if (!bitrix24 || !bitrix24.webhookUrl) {
+      return {
+        status: 'not_configured',
+        message: 'Bitrix24 webhook URL not configured'
+      };
+    }
+
+    await axios.get(
+      `${bitrix24.webhookUrl}profile`,
       { timeout: 5000 }
     );
     return {
       status: 'healthy',
-      domain: config.BITRIX24_DOMAIN
+      domain: bitrix24.domain || 'configured'
     };
   } catch (error) {
     return {
@@ -91,8 +103,7 @@ async function healthCheck(req, res) {
     },
     environment: {
       nodeVersion: process.version,
-      environment: config.NODE_ENV,
-      service: config.SERVICE_NAME
+      environment: process.env.NODE_ENV || 'development'
     }
   };
 

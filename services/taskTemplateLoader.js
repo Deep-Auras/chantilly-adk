@@ -1,5 +1,5 @@
 const vm = require('vm');
-const { extractGeminiText, getGeminiModelName } = require('../config/gemini');
+const { getGeminiClient, extractGeminiText, getGeminiModelName } = require('../config/gemini');
 const { logger } = require('../utils/logger');
 const { getTaskTemplatesModel } = require('../models/taskTemplates');
 const { RepairTracker } = require('./repairTracker');
@@ -725,9 +725,11 @@ class TaskTemplateLoader {
    */
   async selectTemplateWithAI(message, templates, context) {
     try {
-      const { GoogleGenAI } = require('@google/genai');
-      const config = require('../config/env');
-      const genAI = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
+      const genAI = getGeminiClient();
+      if (!genAI) {
+        logger.warn('Gemini client not available for template selection');
+        return null;
+      }
 
       // Prepare template descriptions for AI
       const templateDescriptions = templates.map(template => ({
@@ -1278,9 +1280,11 @@ Return ONLY the JSON, no other text.`;
    */
   async repairTemplateWithAI(template, detailedErrors, originalRequest, repairAttempt) {
     try {
-      const { GoogleGenAI } = require('@google/genai');
-      const config = require('../config/env');
-      const genAI = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
+      const genAI = getGeminiClient();
+      if (!genAI) {
+        logger.warn('Gemini client not available for template repair');
+        return null;
+      }
 
       // Build detailed feedback for Gemini
       const errorSummary = detailedErrors.map(error =>
@@ -1424,9 +1428,11 @@ Return ONLY the corrected execution script, no explanations. The script must fix
         return null;
       }
 
-      const { GoogleGenAI } = require('@google/genai');
-      const config = require('../config/env');
-      const genAI = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
+      const genAI = getGeminiClient();
+      if (!genAI) {
+        logger.warn('Gemini client not available for runtime repair');
+        return null;
+      }
 
       // Load knowledge base content for API endpoint constraints
       const knowledgeBaseContent = await this.loadKnowledgeBaseForRepair();
@@ -1434,7 +1440,11 @@ Return ONLY the corrected execution script, no explanations. The script must fix
       // ===== Phase 2.2: Retrieve relevant memories from past executions =====
       let relevantMemoriesSection = '';
       let usedRepairMemoryIds = []; // Track which memories were used for repair
-      if (config.REASONING_MEMORY_ENABLED) {
+      // Check if reasoning memory is enabled via feature flags
+      const { getConfigManager } = require('./dashboard/configManager');
+      const configManager = await getConfigManager();
+      const reasoningMemoryEnabled = await configManager.get('feature-flags', 'REASONING_MEMORY_ENABLED');
+      if (reasoningMemoryEnabled) {
         try {
           const embeddingService = require('../services/embeddingService');
           const { getReasoningMemoryModel } = require('../models/reasoningMemory');
@@ -2087,9 +2097,11 @@ Return ONLY the complete corrected execution script with the error fixed. No exp
    */
   async repairTemplateForSecurityViolation(template, securityError, originalRequest, repairAttempt) {
     try {
-      const { GoogleGenAI } = require('@google/genai');
-      const config = require('../config/env');
-      const genAI = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
+      const genAI = getGeminiClient();
+      if (!genAI) {
+        logger.warn('Gemini client not available for security violation repair');
+        return null;
+      }
 
       const securityRepairPrompt = `You are a security-focused code repair specialist. A JavaScript execution script has been flagged for security violations and needs to be fixed to comply with security policies.
 

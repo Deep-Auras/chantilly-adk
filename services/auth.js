@@ -3,16 +3,12 @@ const jwt = require('jsonwebtoken');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
 
-// Bcrypt work factor (2025 OWASP recommendation: 12-14 rounds)
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
-
-// JWT configuration loaded from Firestore
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-
 class AuthService {
   constructor() {
     this.db = null;
     this.jwtSecret = null;
+    this.bcryptRounds = 12; // Default, will be loaded from Firestore
+    this.jwtExpiresIn = '24h'; // Default, will be loaded from Firestore
     this.initialized = false;
   }
 
@@ -21,17 +17,20 @@ class AuthService {
 
     this.db = getFirestore();
 
-    // Load JWT_SECRET from Firestore (setup wizard stores it there)
-    await this.loadJwtSecret();
+    // Load auth config from Firestore (JWT secret, bcrypt rounds, JWT expiry)
+    await this.loadAuthConfig();
 
     // Create default admin user if doesn't exist
     await this.createDefaultAdmin();
 
     this.initialized = true;
-    logger.info('Auth service initialized');
+    logger.info('Auth service initialized', {
+      bcryptRounds: this.bcryptRounds,
+      jwtExpiresIn: this.jwtExpiresIn
+    });
   }
 
-  async loadJwtSecret() {
+  async loadAuthConfig() {
     try {
       const configDoc = await this.db.collection('agent').doc('config').get();
 
@@ -39,13 +38,24 @@ class AuthService {
         throw new Error('JWT_SECRET not found in Firestore. Please run setup wizard at /setup');
       }
 
-      this.jwtSecret = configDoc.data().jwtSecret;
-      logger.info('JWT secret loaded from Firestore');
+      const config = configDoc.data();
+      this.jwtSecret = config.jwtSecret;
+
+      // Load bcrypt rounds (default 12 per OWASP 2025 recommendation)
+      this.bcryptRounds = parseInt(config.bcryptRounds) || 12;
+
+      // Load JWT expiry (default 24h)
+      this.jwtExpiresIn = config.jwtExpiresIn || '24h';
+
+      logger.info('Auth config loaded from Firestore', {
+        bcryptRounds: this.bcryptRounds,
+        jwtExpiresIn: this.jwtExpiresIn
+      });
     } catch (error) {
-      logger.error('Failed to load JWT secret from Firestore', {
+      logger.error('Failed to load auth config from Firestore', {
         error: error.message
       });
-      throw new Error('JWT_SECRET not configured. Please run setup wizard at /setup');
+      throw new Error('Auth configuration not found. Please run setup wizard at /setup');
     }
   }
 
@@ -132,7 +142,7 @@ class AuthService {
           role: userData.role
         },
         this.jwtSecret,
-        { expiresIn: JWT_EXPIRES_IN }
+        { expiresIn: this.jwtExpiresIn }
       );
 
       // Log successful login
@@ -190,7 +200,7 @@ class AuthService {
       }
 
       // Hash new password with secure work factor
-      const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+      const hashedPassword = await bcrypt.hash(newPassword, this.bcryptRounds);
 
       // Update password
       await this.db.collection('users').doc(username).update({
@@ -292,7 +302,7 @@ class AuthService {
       }
 
       // Hash password with secure work factor
-      const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+      const hashedPassword = await bcrypt.hash(password, this.bcryptRounds);
 
       // Create user
       await this.db.collection('users').doc(username).set({

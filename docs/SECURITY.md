@@ -303,9 +303,6 @@ If you discover a security vulnerability, please report it to:
 JWT_SECRET=your-secure-secret-here
 JWT_EXPIRES_IN=24h
 
-# CORS
-ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
-
 # Rate Limiting
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_WINDOW_MS=900000

@@ -29,6 +29,16 @@ html(lang="en")
         from { transform: translateY(-20px); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
       }
+      /* Build Mode sidebar styling */
+      .bg-build-mode {
+        background-color: #8B6914 !important; /* Dark goldenrod */
+      }
+      .bg-build-mode .sidebar-link:hover {
+        background-color: #6B5210 !important; /* Darker goldenrod on hover */
+      }
+      .bg-build-mode .border-gray-700 {
+        border-color: #6B5210 !important;
+      }
 
   body.bg-gray-50.text-gray-900(x-data="dashboardApp()")
     //- Flash Messages
@@ -51,8 +61,8 @@ html(lang="en")
               span= msg
 
     .flex.h-screen.overflow-hidden
-      //- Sidebar
-      aside.bg-gray-900.text-white.w-64.flex-shrink-0.overflow-y-auto(
+      //- Sidebar (dark goldenrod when Build Mode is enabled globally)
+      aside.text-white.w-64.flex-shrink-0.overflow-y-auto(
         x-show="sidebarOpen"
         x-transition:enter="transition ease-out duration-200"
         x-transition:enter-start="-translate-x-full"
@@ -60,7 +70,7 @@ html(lang="en")
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="translate-x-0"
         x-transition:leave-end="-translate-x-full"
-        class="md:translate-x-0"
+        class="md:translate-x-0 " + (buildModeEnabled ? 'bg-build-mode' : 'bg-gray-900')
         x-cloak
       )
         .flex.flex-col.h-full
@@ -119,6 +129,17 @@ html(lang="en")
               svg.w-5.h-5(fill="none" stroke="currentColor" viewBox="0 0 24 24")
                 path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z")
               span Tools
+
+            //- Build Mode (only shown if GitHub is configured - client-side check)
+            a.sidebar-link.flex.items-center.gap-3.px-4.py-3.rounded-lg.text-gray-300(
+              href="/dashboard/build"
+              class=currentPage === 'build' ? 'bg-gray-800 text-white' : ''
+              x-show="buildModeAvailable"
+              x-cloak
+            )
+              svg.w-5.h-5(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4")
+              span Build Mode
 
             a.sidebar-link.flex.items-center.gap-3.px-4.py-3.rounded-lg.text-gray-300(
               href="/dashboard/tasks"
@@ -187,8 +208,9 @@ html(lang="en")
       function dashboardApp() {
         return {
           sidebarOpen: window.innerWidth >= 768, // Open on desktop, closed on mobile
+          buildModeAvailable: false, // Checked on init
 
-          init() {
+          async init() {
             // Listen for window resize to auto-show/hide sidebar
             window.addEventListener('resize', () => {
               if (window.innerWidth >= 768) {
@@ -200,6 +222,24 @@ html(lang="en")
             const token = document.querySelector('meta[name="csrf-token"]');
             if (token) {
               window.csrfToken = token.getAttribute('content');
+            }
+
+            // Check if Build Mode is available (GitHub configured)
+            try {
+              const response = await fetch('/api/build/github/status', {
+                credentials: 'same-origin' // Include session cookies
+              });
+              if (response.ok) {
+                const data = await response.json();
+                this.buildModeAvailable = data.connected === true;
+                console.log('Build mode status:', data);
+              } else {
+                console.error('Build mode check failed:', response.status, response.statusText);
+                this.buildModeAvailable = false;
+              }
+            } catch (e) {
+              console.error('Build mode check error:', e);
+              this.buildModeAvailable = false;
             }
 
             // Auto-dismiss flash messages after 5 seconds

@@ -139,13 +139,39 @@ class GeminiService {
       });
       const systemPrompt = await this.promptsModel.getPrompt('chat.system');
       const knowledgePrompt = this.knowledgeBase.getRelevantKnowledgePrompt(knowledgeResults);
-      const combinedSystemPrompt = `${personalityPrompt}\n\n${systemPrompt}${knowledgePrompt}`;
+
+      // Check if Build Mode should be activated for this message
+      let buildModePrompt = '';
+      try {
+        const { getBuildModeTriggerService } = require('./build/buildModeTriggerService');
+        const triggerService = getBuildModeTriggerService();
+        const buildModeCheck = await triggerService.shouldInjectBuildModePrompt(messageData.message);
+
+        if (buildModeCheck.inject) {
+          buildModePrompt = await this.promptsModel.getPrompt('buildMode.system');
+          logger.info('Build Mode prompt injected', {
+            matchedPhrase: buildModeCheck.matchedPhrase,
+            category: buildModeCheck.category,
+            similarity: buildModeCheck.similarity?.toFixed(4)
+          });
+        }
+      } catch (error) {
+        logger.warn('Build Mode trigger check failed, continuing without', {
+          error: error.message
+        });
+      }
+
+      const combinedSystemPrompt = buildModePrompt
+        ? `${personalityPrompt}\n\n${systemPrompt}\n\n${buildModePrompt}${knowledgePrompt}`
+        : `${personalityPrompt}\n\n${systemPrompt}${knowledgePrompt}`;
 
       // Debug logging
       logger.info('System prompt components', {
         personalityLength: personalityPrompt.length,
         systemLength: systemPrompt.length,
         knowledgeLength: knowledgePrompt.length,
+        buildModeLength: buildModePrompt.length,
+        buildModeActive: buildModePrompt.length > 0,
         totalLength: combinedSystemPrompt.length,
         personalityPreview: personalityPrompt.substring(0, 100)
       });
@@ -206,18 +232,16 @@ class GeminiService {
       let rbacSystem = 'bitrix24'; // Default to original behavior
 
       try {
-        const rbacDoc = await this.db.collection('agent').doc('rbac').get();
-        if (rbacDoc.exists && rbacDoc.data().system) {
-          rbacSystem = rbacDoc.data().system;
+        const configDoc = await this.db.collection('agent').doc('config').get();
+        if (configDoc.exists && configDoc.data().rbacProvider) {
+          rbacSystem = configDoc.data().rbacProvider;
         }
       } catch (error) {
-        logger.warn('Could not load RBAC system config from Firestore, using default', {
+        logger.warn('Could not load RBAC config from Firestore, using default', {
           error: error.message,
           default: rbacSystem
         });
       }
-
-      const isGoogleChat = sanitizedMessageData.platform === 'google-chat';
 
       logger.info('RBAC system configured', {
         rbacSystem: rbacSystem,
@@ -237,44 +261,68 @@ class GeminiService {
           });
           // Continue with default 'user' role (fail-safe)
         }
-      } else if (rbacSystem === 'google-workspace') {
-        // Google Workspace RBAC: Use Google Chat roles for all messages
-        userRole = sanitizedMessageData.userRole || 'user';
-        logger.info('Using Google Workspace RBAC for all messages', {
-          userId: sanitizedMessageData.userId,
-          userRole: userRole
-        });
-      } else if (rbacSystem === 'hybrid') {
-        // Hybrid RBAC: Platform-specific role detection
-        if (isGoogleChat) {
-          // For Google Chat messages, use Google Workspace roles
-          userRole = sanitizedMessageData.userRole || 'user';
-          logger.info('Using Google Workspace user role (hybrid mode)', {
+      } else if (rbacSystem === 'chantilly') {
+        // Chantilly User Management RBAC: Use Firestore users collection
+        // Standalone provider - looks up roles from users collection
+        try {
+          const userDoc = await this.db.collection('users').doc(sanitizedMessageData.userId).get();
+          if (userDoc.exists && userDoc.data().role) {
+            userRole = userDoc.data().role;
+          }
+          logger.info('Using Chantilly User Management RBAC', {
             userId: sanitizedMessageData.userId,
             userRole: userRole
           });
-        } else {
-          // For Bitrix24 messages, use Bitrix24 RBAC
-          try {
-            const userRoleService = getUserRoleService();
-            userRole = await userRoleService.getUserRole(sanitizedMessageData.userId);
-          } catch (error) {
-            logger.error('Failed to fetch Bitrix24 user role, defaulting to user', {
-              userId: sanitizedMessageData.userId,
-              platform: sanitizedMessageData.platform,
-              error: error.message
-            });
-            // Continue with default 'user' role (fail-safe)
-          }
+        } catch (error) {
+          logger.error('Failed to fetch Chantilly user role', {
+            userId: sanitizedMessageData.userId,
+            error: error.message
+          });
         }
       }
 
       // Get role-filtered tools (RBAC)
-      const availableTools = registry.getToolsForUser(userRole);
+      let availableTools = registry.getToolsForUser(userRole);
+
+      // If Build Mode is active, add Build Mode tools (requires admin verification)
+      const buildModeActive = buildModePrompt.length > 0;
+      if (buildModeActive) {
+        // Verify user has Build Mode access before adding build tools
+        const { getBuildModeManager } = require('./build/buildModeManager');
+        const buildModeManager = getBuildModeManager();
+        const canModify = await buildModeManager.canUserModifyCode(
+          sanitizedMessageData.userId,
+          userRole
+        );
+
+        if (canModify.allowed) {
+          // Add Build Mode tools that aren't already in the list
+          const buildTools = registry.getToolsByCategory('build');
+          const existingToolNames = new Set(availableTools.map(t => t.name));
+
+          for (const tool of buildTools) {
+            if (!existingToolNames.has(tool.name) && tool.enabled) {
+              availableTools.push(tool);
+            }
+          }
+
+          logger.info('Build Mode tools added to available tools', {
+            buildToolsAdded: buildTools.filter(t => !existingToolNames.has(t.name)).map(t => t.name),
+            totalToolsNow: availableTools.length
+          });
+        } else {
+          logger.warn('Build Mode triggered but user lacks permission', {
+            userId: sanitizedMessageData.userId,
+            userRole: userRole,
+            reason: canModify.reason
+          });
+        }
+      }
 
       logger.info('Offering role-filtered tools to Gemini for AI-based selection', {
         userId: sanitizedMessageData.userId,
         userRole: userRole,
+        buildModeActive: buildModeActive,
         toolCount: availableTools.length,
         toolNames: availableTools.map(t => t.name),
         totalEnabled: registry.getEnabledTools().length,
@@ -413,7 +461,7 @@ class GeminiService {
   async executeWithTools(chat, prompt, tools, messageData, systemInstruction, context, toolExecutionContext = {}) {
     // Initialize or increment tool execution depth
     const currentDepth = (toolExecutionContext.executionDepth || 0) + 1;
-    const maxDepth = 5; // Maximum tool execution depth to prevent infinite loops
+    const maxDepth = 30; // Maximum tool execution depth - high for complex Build Mode tasks
     const executionId = `exec-${Date.now()}`;
 
     if (currentDepth > maxDepth) {
@@ -459,7 +507,29 @@ class GeminiService {
       // Get the Gemini client directly (no conflicting tool config)
       const client = getGeminiClient();
 
-      // Prepare contents with history
+      // Prepare enhanced system instruction with tool usage guidance
+      let enhancedSystemInstruction = systemInstruction || '';
+      if (enhancedSystemInstruction) {
+        enhancedSystemInstruction += `
+
+CRITICAL TOOL USAGE RULES:
+- NEVER use action="search" when user wants to modify/append/add content to documents
+- ALWAYS use action="update" with appendContent parameter for append operations
+- For "append X to document Y": IMMEDIATELY call KnowledgeManagement with action="update", title="Y", appendContent="X"
+- NEVER search first, then update - do the update directly
+- Only use action="search" when user explicitly wants to find/look up information without modifying it
+
+TEMPLATE MODIFICATION RULES (TaskTemplateManager):
+- When user requests to modify/change/update a template's execution code/script:
+  * NEVER provide the full executionScript directly
+  * ALWAYS use templateUpdates.modificationRequest with a clear description of what to change
+  * Example: { "action": "modify", "templateId": "template_id", "templateUpdates": { "modificationRequest": "Add invoice card display sorted by date, include last 4 activities from customer/company, make invoice # clickable link" } }
+  * The tool will fetch current code and generate intelligent modifications
+- For simple metadata updates (name, description, enabled): use direct field updates
+- NEVER regenerate entire scripts from scratch - always use modificationRequest for code changes`;
+      }
+
+      // Prepare initial contents with history
       const contents = [];
 
       // Add few-shot identity examples FIRST (before conversation history)
@@ -480,371 +550,335 @@ class GeminiService {
         parts: [{ text: prompt }]
       });
 
-      // Configure request for Gemini 2.5 Pro with tools (2025 format)
-      // Let Gemini choose the appropriate tool based on semantic descriptions
-      const toolCallingConfig = {
-        mode: 'ANY'
-        // Do NOT set allowedFunctionNames - let Gemini choose based on tool descriptions
-      };
+      // Track all tool results across the loop
+      const allToolResults = [];
+      let loopDepth = 0;
+      const maxLoopDepth = maxDepth - currentDepth; // Remaining depth budget
 
-      const requestConfig = {
-        model: getGeminiModelName(),
-        contents: contents,
-        config: {
-          tools: [{
-            functionDeclarations: toolDeclarations
-          }],
-          toolConfig: {
-            functionCallingConfig: toolCallingConfig
-          },
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 1024
-          }
-        }
-      };
-
-      // Add system instruction if provided
-      if (systemInstruction) {
-        // Enhance system instruction with tool usage guidance
-        const enhancedSystemInstruction = systemInstruction + `
-
-CRITICAL TOOL USAGE RULES:
-- NEVER use action="search" when user wants to modify/append/add content to documents
-- ALWAYS use action="update" with appendContent parameter for append operations
-- For "append X to document Y": IMMEDIATELY call KnowledgeManagement with action="update", title="Y", appendContent="X"
-- NEVER search first, then update - do the update directly
-- Only use action="search" when user explicitly wants to find/look up information without modifying it
-
-TEMPLATE MODIFICATION RULES (TaskTemplateManager):
-- When user requests to modify/change/update a template's execution code/script:
-  * NEVER provide the full executionScript directly
-  * ALWAYS use templateUpdates.modificationRequest with a clear description of what to change
-  * Example: { "action": "modify", "templateId": "template_id", "templateUpdates": { "modificationRequest": "Add invoice card display sorted by date, include last 4 activities from customer/company, make invoice # clickable link" } }
-  * The tool will fetch current code and generate intelligent modifications
-- For simple metadata updates (name, description, enabled): use direct field updates
-- NEVER regenerate entire scripts from scratch - always use modificationRequest for code changes`;
-
-        requestConfig.config.systemInstruction = enhancedSystemInstruction;
-      }
-
-      logger.info(`Sending request to ${getGeminiModelName()}`, {
-        hasTools: !!requestConfig.config?.tools,
-        toolCount: toolDeclarations.length,
-        hasSystemInstruction: !!systemInstruction,
-        model: getGeminiModelName(),
-        toolDeclarations: JSON.stringify(toolDeclarations, null, 2),
-        requestStructure: {
-          hasModel: !!requestConfig.model,
-          hasContents: !!requestConfig.contents,
-          hasConfig: !!requestConfig.config,
-          hasTools: !!requestConfig.config?.tools,
-          hasToolConfig: !!requestConfig.config?.toolConfig,
-          hasFunctionCallingConfig: !!requestConfig.config?.toolConfig?.functionCallingConfig,
-          mode: requestConfig.config?.toolConfig?.functionCallingConfig?.mode,
-          hasGenerationConfig: !!requestConfig.config?.generationConfig,
-          hasSystemInstruction: !!requestConfig.config?.systemInstruction
-        }
+      logger.info('Starting tool chaining loop', {
+        currentDepth,
+        maxDepth,
+        maxLoopDepth,
+        executionId
       });
 
-      const result = await client.models.generateContent(requestConfig);
+      // ============================================
+      // TOOL CHAINING LOOP (Official Gemini Pattern)
+      // Loop until Gemini returns text OR depth limit
+      // ============================================
+      while (loopDepth < maxLoopDepth) {
+        const isAtDepthLimit = (loopDepth >= maxLoopDepth - 1);
 
-      // The Gemini API returns the response directly in result, not result.response
-      const response = result;
-
-      // Debug the full result structure
-      logger.info('Full Gemini result structure', {
-        hasResult: !!result,
-        hasResponse: !!response,
-        resultKeys: result ? Object.keys(result) : 'result is null',
-        hasCandidates: !!result?.candidates,
-        firstCandidate: result?.candidates?.[0] ? Object.keys(result.candidates[0]) : 'no candidate',
-        contentParts: result?.candidates?.[0]?.content?.parts ?
-          result.candidates[0].content.parts.map(p => Object.keys(p)) : 'no parts'
-      });
-
-      // Handle different response structures for tool calls (2025 standard)
-      let toolCalls = [];
-      try {
-        // PRIMARY: Check candidates[0].content.parts for function_call (correct 2025 structure)
-        if (response?.candidates?.[0]?.content?.parts) {
-          const parts = response.candidates[0].content.parts;
-
-          logger.info('Examining content parts for function calls', {
-            partsCount: parts.length,
-            partsStructure: parts.map((part, idx) => ({
-              index: idx,
-              keys: Object.keys(part),
-              hasText: !!part.text,
-              hasFunctionCall: !!part.function_call,
-              hasFunctionCallCamel: !!part.functionCall
-            }))
-          });
-
-          for (const part of parts) {
-            // Check both function_call (snake_case) and functionCall (camelCase)
-            if (part.function_call) {
-              toolCalls.push({
-                name: part.function_call.name,
-                args: part.function_call.args || {}
-              });
-            } else if (part.functionCall) {  // camelCase format
-              toolCalls.push({
-                name: part.functionCall.name,
-                args: part.functionCall.args || {}
-              });
+        // Build request config - only disable tools at depth limit
+        const requestConfig = {
+          model: getGeminiModelName(),
+          contents: contents,
+          config: {
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 65536
             }
           }
-        }
-        // FALLBACK 2: Direct functionCalls method (very old structure)
-        else if (response.functionCalls && typeof response.functionCalls === 'function') {
-          const legacyCalls = response.functionCalls();
-          toolCalls = legacyCalls.map(call => ({
-            name: call.name,
-            args: call.args || {}
-          }));
-        }
-        // FALLBACK 3: Direct functionCalls array
-        else if (response.functionCalls && Array.isArray(response.functionCalls)) {
-          toolCalls = response.functionCalls.map(call => ({
-            name: call.name,
-            args: call.args || {}
-          }));
-        }
+        };
 
-        logger.info('Function calls extracted from Gemini response', {
-          toolCallsFound: toolCalls.length,
-          callNames: toolCalls.map(tc => tc.name),
-          responseStructure: {
-            hasCandidates: !!response?.candidates,
-            hasContentParts: !!response?.candidates?.[0]?.content?.parts,
-            partsCount: response?.candidates?.[0]?.content?.parts?.length || 0,
-            hasLegacyFunctionCalls: !!response.functionCalls,
-            functionCallsType: typeof response.functionCalls
-          }
-        });
-      } catch (error) {
-        logger.error('Error extracting tool calls from response', {
-          error: error.message,
-          responseKeys: response ? Object.keys(response) : 'response is null/undefined',
-          responseType: typeof response
-        });
-        toolCalls = [];
-      }
+        // Always include tools in request, but control behavior with mode
+        requestConfig.config.tools = [{
+          functionDeclarations: toolDeclarations
+        }];
 
-      const toolResults = [];
-      const maxToolCalls = 10; // Maximum number of tool calls in single execution
-
-      // Check for too many tool calls (possible infinite loop)
-      if (toolCalls.length > maxToolCalls) {
-        logger.error('Too many tool calls detected, possible infinite loop', {
-          toolCallsCount: toolCalls.length,
-          maxToolCalls,
-          toolNames: toolCalls.map(tc => tc.name)
-        });
-        throw new Error(`Too many tool calls (${toolCalls.length} > ${maxToolCalls}). Possible infinite loop detected.`);
-      }
-
-      // If no tool calls detected, check if Gemini returned a text response instead
-      if (toolCalls.length === 0) {
-        // Use centralized response extraction with detailed logging
-        const textResponse = extractGeminiText(response, {
-          includeLogging: true,
-          logger: logger.info.bind(logger)
-        });
-
-        logger.warn('No tool calls detected in response despite tools being available', {
-          hasText: !!textResponse,
-          textPreview: textResponse.substring(0, 100)
-        });
-
-        // Return the text response if no tools were called
-        if (textResponse) {
-          return {
-            reply: textResponse,
-            toolsUsed: []
+        if (!isAtDepthLimit) {
+          requestConfig.config.toolConfig = {
+            functionCallingConfig: { mode: 'AUTO' } // Let Gemini decide
+          };
+        } else {
+          // At depth limit - force text generation
+          // Tools must be present for mode: 'NONE' to work correctly
+          requestConfig.config.toolConfig = {
+            functionCallingConfig: { mode: 'NONE' }
           };
         }
-      }
 
-      // Execute tool calls
-      for (const call of toolCalls) {
-        logger.info('Executing tool call', {
-          toolName: call.name,
-          hasArgs: !!call.args,
-          argsKeys: call.args ? Object.keys(call.args) : [],
-          toolArgs: JSON.stringify(call.args, null, 2)
+        if (enhancedSystemInstruction) {
+          requestConfig.config.systemInstruction = enhancedSystemInstruction;
+        }
+
+        logger.info(`Tool loop iteration ${loopDepth + 1}/${maxLoopDepth}`, {
+          contentsLength: contents.length,
+          toolsEnabled: !isAtDepthLimit,
+          isAtDepthLimit
         });
 
-        const tool = registry.getTool(call.name);
-        if (tool) {
-          try {
-            // Pass enhanced context to tools
-            const enhancedToolContext = {
-              ...toolExecutionContext,
-              previousToolResults: toolResults,
-              currentCall: call
-            };
-            
-            // Execute tool with timeout protection
-            const toolTimeout = 720000; // 12 minutes max per tool
-            const timeoutPromise = new Promise((_, reject) => {
-              setTimeout(() => reject(new Error(`Tool execution timeout after ${toolTimeout}ms`)), toolTimeout);
-            });
-            
-            const result = await Promise.race([
-              tool.execute(call.args, enhancedToolContext),
-              timeoutPromise
-            ]);
-            
-            toolResults.push({
-              name: call.name,
-              result
-            });
-            logger.info('Tool execution successful', {
-              toolName: call.name,
-              resultType: typeof result,
-              hasKnowledgeContext: !!enhancedToolContext.knowledgeResults,
-              executionDepth: currentDepth
-            });
-          } catch (error) {
-            logger.error('Tool execution failed', {
-              tool: call.name,
-              error: error.message,
-              stack: error.stack
-            });
-            toolResults.push({
-              name: call.name,
-              error: error.message
-            });
+        const result = await client.models.generateContent(requestConfig);
+
+        // Extract function calls from response
+        // IMPORTANT: Preserve original parts with thoughtSignature for Gemini 2.5+
+        let toolCalls = [];
+        let originalFunctionCallParts = []; // Preserve for conversation history
+        try {
+          if (result?.candidates?.[0]?.content?.parts) {
+            const parts = result.candidates[0].content.parts;
+            for (const part of parts) {
+              if (part.function_call || part.functionCall) {
+                const fc = part.function_call || part.functionCall;
+                toolCalls.push({
+                  name: fc.name,
+                  args: fc.args || {}
+                });
+                // Preserve the ORIGINAL part which includes thoughtSignature
+                originalFunctionCallParts.push(part);
+              }
+            }
           }
-        } else {
-          logger.warn('Tool not found in registry', {
-            requestedTool: call.name,
-            availableTools: registry.getAllTools().map(t => t.name)
+        } catch (error) {
+          logger.error('Error extracting tool calls', { error: error.message });
+          toolCalls = [];
+          originalFunctionCallParts = [];
+        }
+
+        logger.info('Tool calls extracted', {
+          loopDepth,
+          toolCallsFound: toolCalls.length,
+          callNames: toolCalls.map(tc => tc.name)
+        });
+
+        // ============================================
+        // EXIT CONDITION: No more tool calls
+        // ============================================
+        if (toolCalls.length === 0) {
+          const textResponse = extractGeminiText(result, {
+            includeLogging: true,
+            logger: logger.info.bind(logger)
+          });
+
+          if (textResponse) {
+            logger.info('Tool chaining complete - text response received', {
+              loopDepth,
+              totalToolsUsed: allToolResults.length,
+              textLength: textResponse.length
+            });
+            return {
+              reply: textResponse,
+              toolsUsed: allToolResults.map(t => t.name),
+              toolResults: allToolResults
+            };
+          }
+
+          // No text and no tool calls - check if UNEXPECTED_TOOL_CALL at depth limit
+          // If so, break to use the fallback section instead of returning failure
+          const finishReason = result?.candidates?.[0]?.finishReason;
+          if (isAtDepthLimit && finishReason === 'UNEXPECTED_TOOL_CALL') {
+            logger.warn('UNEXPECTED_TOOL_CALL at depth limit, using fallback', {
+              loopDepth,
+              finishReason
+            });
+            break; // Exit loop to use depth limit fallback
+          }
+
+          // No text and no tool calls - something went wrong
+          logger.warn('No tool calls and no text response', { loopDepth, finishReason });
+          return {
+            reply: 'Tool execution completed but no response generated.',
+            toolsUsed: allToolResults.map(t => t.name),
+            toolResults: allToolResults
+          };
+        }
+
+        // ============================================
+        // EXECUTE TOOL CALLS
+        // ============================================
+        const maxToolCallsPerIteration = 10;
+        if (toolCalls.length > maxToolCallsPerIteration) {
+          logger.error('Too many tool calls in single iteration', {
+            count: toolCalls.length,
+            max: maxToolCallsPerIteration
+          });
+          throw new Error(`Too many tool calls (${toolCalls.length} > ${maxToolCallsPerIteration})`);
+        }
+
+        const iterationResults = [];
+        for (const call of toolCalls) {
+          logger.info('Executing tool', {
+            toolName: call.name,
+            loopDepth,
+            argsKeys: Object.keys(call.args || {})
+          });
+
+          const tool = registry.getTool(call.name);
+          if (tool) {
+            try {
+              // Extract userId, userRole, and conversationId from messageData for direct access by tools
+              const messageDataContext = toolExecutionContext.messageData || {};
+              const enhancedContext = {
+                ...toolExecutionContext,
+                // Flatten userId, userRole, and conversationId for direct access
+                userId: messageDataContext.userId,
+                userRole: messageDataContext.userRole,
+                conversationId: messageDataContext.dialogId || messageDataContext.chatId,
+                previousToolResults: allToolResults,
+                currentCall: call,
+                executionDepth: currentDepth + loopDepth
+              };
+
+              // Execute with timeout
+              const toolTimeout = 720000; // 12 minutes
+              const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Tool timeout after ${toolTimeout}ms`)), toolTimeout);
+              });
+
+              const toolResult = await Promise.race([
+                tool.execute(call.args, enhancedContext),
+                timeoutPromise
+              ]);
+
+              iterationResults.push({ name: call.name, result: toolResult });
+              allToolResults.push({ name: call.name, result: toolResult });
+
+              logger.info('Tool execution successful', {
+                toolName: call.name,
+                resultType: typeof toolResult
+              });
+            } catch (error) {
+              logger.error('Tool execution failed', {
+                toolName: call.name,
+                error: error.message
+              });
+              iterationResults.push({ name: call.name, error: error.message });
+              allToolResults.push({ name: call.name, error: error.message });
+            }
+          } else {
+            logger.warn('Tool not found', { toolName: call.name });
+            iterationResults.push({ name: call.name, error: 'Tool not found' });
+            allToolResults.push({ name: call.name, error: 'Tool not found' });
+          }
+        }
+
+        // Check for null results (tool handled messaging itself)
+        const hasNullResults = iterationResults.some(tr => tr.result === null);
+        if (hasNullResults) {
+          logger.info('Tool returned null - skipping response generation');
+          return { reply: null };
+        }
+
+        // ============================================
+        // APPEND TO CONVERSATION & CONTINUE LOOP
+        // ============================================
+        // Add model's function calls to conversation
+        // CRITICAL: Use original parts to preserve thoughtSignature (required by Gemini 2.5+)
+        contents.push({
+          role: 'model',
+          parts: originalFunctionCallParts
+        });
+
+        // Add function responses to conversation
+        const functionResponseParts = iterationResults.map(tr => {
+          let responseData;
+          if (tr.error) {
+            responseData = { error: tr.error, success: false };
+          } else if (typeof tr.result === 'string') {
+            responseData = { content: tr.result, success: true };
+          } else if (tr.result && typeof tr.result === 'object') {
+            const toolSuccess = tr.result.success !== undefined ? tr.result.success : true;
+            responseData = { ...tr.result, success: toolSuccess };
+          } else {
+            responseData = { result: tr.result, success: true };
+          }
+          return {
+            functionResponse: {
+              name: tr.name,
+              response: responseData
+            }
+          };
+        });
+
+        contents.push({
+          role: 'user',
+          parts: functionResponseParts
+        });
+
+        // Check for photo responses and add special instruction
+        const hasPhotoResponse = iterationResults.some(tr =>
+          typeof tr.result === 'string' &&
+          (tr.result.includes('📸') || tr.result.includes('[Photo ')) &&
+          tr.result.includes('places.googleapis.com')
+        );
+
+        if (hasPhotoResponse) {
+          contents.push({
+            role: 'user',
+            parts: [{
+              text: `IMPORTANT: Preserve ALL photo URLs exactly as provided. Add annotations but keep every [Photo X](URL) link intact.`
+            }]
           });
         }
-      }
 
-      // Check if any tools returned null (indicating they handled messaging themselves)
-      const hasNullResults = toolResults.some(tr => tr.result === null);
-      if (hasNullResults) {
-        logger.info('Tool returned null - skipping final response generation', {
-          toolResultsCount: toolResults.length,
-          toolNames: toolResults.map(tr => tr.name)
+        loopDepth++;
+        logger.info('Tool loop iteration complete, continuing', {
+          loopDepth,
+          totalToolsUsed: allToolResults.length,
+          contentsLength: contents.length
         });
-        return { reply: null }; // Indicate no additional response needed
       }
 
-      // Generate final response with tool results using the same model
-      logger.info('Generating final response with tool results', {
-        toolResultsCount: toolResults.length,
-        toolNames: toolResults.map(tr => tr.name),
-        hasResults: toolResults.length > 0
+      // ============================================
+      // DEPTH LIMIT REACHED - Force final response
+      // ============================================
+      logger.warn('Tool chaining depth limit reached, forcing final response', {
+        loopDepth,
+        maxLoopDepth,
+        totalToolsUsed: allToolResults.length
       });
 
-      // Check if this is a photo response that needs special handling
-      // We want Gemini to add annotations but preserve the photo URLs
-      let isPhotoResponse = false;
-      let photoToolResult = null;
-      
-      for (const toolResult of toolResults) {
-        if (typeof toolResult.result === 'string' && 
-            (toolResult.result.includes('📸') || toolResult.result.includes('[Photo ')) &&
-            toolResult.result.includes('places.googleapis.com')) {
-          
-          isPhotoResponse = true;
-          photoToolResult = toolResult;
-          
-          logger.info('Detected photo response - will ask Gemini to enhance with annotations', {
-            toolName: toolResult.name,
-            responseLength: toolResult.result.length,
-            hasPhotoUrls: toolResult.result.includes('places.googleapis.com')
-          });
-          break;
-        }
-      }
+      // Add strong instruction to generate final response WITHOUT calling more tools
+      contents.push({
+        role: 'user',
+        parts: [{
+          text: `STOP. DO NOT CALL ANY MORE TOOLS. Generate a final text response NOW.
+
+You have already executed multiple tools. Summarize the results for the user:
+- If tools returned success messages, relay them exactly
+- If tools returned data or content, present it clearly
+- If tools created or modified files, confirm what was done
+
+DO NOT request additional tool calls. Respond with text only.`
+        }]
+      });
 
       const finalRequestConfig = {
         model: getGeminiModelName(),
-        contents: [
-          {
-            role: 'user',
-            parts: [{
-              text: prompt
-            }]
-          },
-          {
-            role: 'model',
-            parts: [{
-              text: 'I\'ll help you with that. Let me use the appropriate tools.'
-            }]
-          },
-          {
-            role: 'user',
-            parts: [{
-              text: isPhotoResponse ?
-                `I found visitor photos with actual URLs. Here's the formatted response: ${photoToolResult.result}\n\nIMPORTANT: You MUST preserve ALL photo URLs exactly as provided. Add helpful annotations, context about the locations, or interesting details about what visitors might see, but keep every single [Photo X](URL) link intact. DO NOT create generic text - use the actual response with URLs.` :
-                `Tool execution results:\n${toolResults.map(tr => {
-                  // CRITICAL: Check for errors FIRST and format them explicitly
-                  if (tr.error) {
-                    return `❌ ERROR - Tool "${tr.name}" FAILED:\n${tr.error}\n\nThe tool did NOT complete successfully. You MUST inform the user that the operation failed with this error message. DO NOT generate fake successful results.`;
-                  }
-                  // If result is already a formatted string, use it as-is
-                  if (typeof tr.result === 'string') {
-                    return tr.result;
-                  }
-                  // If result is an object with a message field, use that for user-friendly display
-                  if (tr.result && typeof tr.result === 'object' && tr.result.message) {
-                    return tr.result.message;
-                  }
-                  // If result is an object/array without message field, format it for display
-                  return JSON.stringify(tr.result, null, 2);
-                }).join('\n\n')}\n\nCRITICAL INSTRUCTIONS:
-1. If the tool returned a formatted message starting with ✅ or containing "Posted to Bluesky" or "created successfully" - the action is ALREADY COMPLETE. DO NOT say "here's a draft" or "for your review". The tool EXECUTED the action.
-2. If the tool says it posted/created/updated something, relay that EXACTLY. DO NOT rewrite success messages as drafts or suggestions.
-3. If the tool returned structured data (JSON/objects), convert it to user-friendly prose or lists.
-4. If the tool returned a formatted text message, present it exactly as written.
-5. DO NOT fabricate structured data or additional fields that were not in the actual tool output.
-6. DO NOT add phrases like "I've drafted", "for your review", "let me know if you'd like to post" when the tool already performed the action.`
-            }]
-          }
-        ],
+        contents: contents,
         config: {
           generationConfig: {
             temperature: 0.7,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 65536 // Maximum for Gemini 2.5 Pro - allows full transcripts
+            maxOutputTokens: 65536
           }
+          // Deliberately NOT including tools or toolConfig to avoid UNEXPECTED_TOOL_CALL
+          // The strong prompt instruction should guide the model to generate text
         }
       };
 
-      if (systemInstruction) {
-        finalRequestConfig.config.systemInstruction = systemInstruction;
+      if (enhancedSystemInstruction) {
+        finalRequestConfig.config.systemInstruction = enhancedSystemInstruction;
       }
 
-      logger.info('Sending final request to Gemini for tool response generation');
       const finalResult = await client.models.generateContent(finalRequestConfig);
-
-      // Use centralized response extraction with detailed logging
       const finalText = extractGeminiText(finalResult, {
         includeLogging: true,
         logger: logger.info.bind(logger)
-      }) || finalResult?.text?.() || 'Tool execution completed but no response generated.';
+      }) || 'Tool execution completed.';
 
-      logger.info('Final Gemini response received', {
-        hasCandidates: !!finalResult?.candidates,
-        candidatesCount: finalResult?.candidates?.length || 0,
-        hasText: !!finalText,
-        textLength: finalText.length
+      logger.info('Final response generated after depth limit', {
+        textLength: finalText.length,
+        totalToolsUsed: allToolResults.length
       });
 
       return {
         reply: finalText,
-        toolsUsed: toolResults.map(t => t.name)
+        toolsUsed: allToolResults.map(t => t.name),
+        toolResults: allToolResults
       };
     } catch (error) {
       logger.error('Failed to execute with tools', { executionId, error: error.message, stack: error.stack });
@@ -924,7 +958,7 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
    */
   async checkForToolsSemantic(message, messageData = {}, knowledgeResults = []) {
     logger.warn('DEPRECATED: checkForToolsSemantic() still uses regex validation. Use AI-based detection instead.');
-    const useSemanticTools = FeatureFlags.shouldUseSemanticTools();
+    const useSemanticTools = await FeatureFlags.shouldUseSemanticTools();
 
     if (!useSemanticTools) {
       logger.info('Semantic tool detection disabled by feature flag, using keyword matching');

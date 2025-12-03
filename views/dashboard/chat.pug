@@ -84,6 +84,49 @@ block content
                     .w-2.h-2.bg-gray-400.rounded-full.animate-bounce(style="animation-delay: 150ms")
                     .w-2.h-2.bg-gray-400.rounded-full.animate-bounce(style="animation-delay: 300ms")
 
+        //- Pending Approvals
+        template(x-for="(approval, index) in pendingApprovals" :key="approval.modId")
+          .flex.justify-start.mt-4
+            .max-w-3xl.w-full.bg-amber-50.border.border-amber-200.rounded-lg.shadow
+              //- Header
+              .px-4.py-3.border-b.border-amber-200.bg-amber-100.rounded-t-lg
+                .flex.items-center.justify-between
+                  .flex.items-center.gap-2
+                    svg.w-5.h-5.text-amber-600(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                      path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z")
+                    span.text-sm.font-medium.text-amber-800 Approval Required
+                  span.text-xs.px-2.py-1.bg-amber-200.text-amber-700.rounded(x-text="approval.operation === 'create' ? 'New File' : 'Modify File'")
+
+              //- File path
+              .px-4.py-2.border-b.border-amber-100
+                .flex.items-center.gap-2
+                  svg.w-4.h-4.text-gray-500(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                    path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z")
+                  code.text-sm.text-gray-700(x-text="approval.filePath")
+
+              //- Diff preview
+              .px-4.py-3.max-h-64.overflow-auto
+                pre.text-xs.font-mono.whitespace-pre-wrap.leading-relaxed(x-html="formatDiff(approval.diff)")
+
+              //- Action buttons
+              .px-4.py-3.bg-gray-50.border-t.border-amber-100.rounded-b-lg
+                .flex.items-center.justify-end.gap-3
+                  button.px-4.py-2.text-sm.font-medium.text-gray-700.bg-white.border.border-gray-300.rounded-md(
+                    @click="rejectApproval(approval.modId)"
+                    :disabled="approval.processing"
+                    class="hover:bg-gray-50 disabled:opacity-50"
+                  )
+                    span(x-show="!approval.processing") Reject
+                    span(x-show="approval.processing" x-cloak) Processing...
+
+                  button.px-4.py-2.text-sm.font-medium.text-white.bg-green-600.rounded-md(
+                    @click="approveModification(approval.modId)"
+                    :disabled="approval.processing"
+                    class="hover:bg-green-700 disabled:opacity-50"
+                  )
+                    span(x-show="!approval.processing") Approve & Commit
+                    span(x-show="approval.processing" x-cloak) Committing...
+
       //- Input Area
       .bg-white.rounded-b-lg.shadow.px-6.py-4.border-t.border-gray-200
         form(@submit.prevent="sendMessage()" x-ref="messageForm")
@@ -127,6 +170,7 @@ block content
         eventSource: null,
         unsubscribe: null,
         autoScroll: true,
+        pendingApprovals: [],
 
         async init() {
           try {
@@ -238,6 +282,7 @@ block content
             // Read SSE stream
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
+            let currentEventType = 'message';
 
             while (true) {
               const { done, value } = await reader.read();
@@ -247,8 +292,26 @@ block content
               const lines = chunk.split('\n');
 
               for (const line of lines) {
+                // Track event type
+                if (line.startsWith('event: ')) {
+                  currentEventType = line.slice(7).trim();
+                  continue;
+                }
+
                 if (line.startsWith('data: ')) {
                   const data = JSON.parse(line.slice(6));
+
+                  // Handle approval events
+                  if (currentEventType === 'approval' && data.approval) {
+                    this.pendingApprovals.push({
+                      ...data.approval,
+                      processing: false
+                    });
+                    if (this.autoScroll) {
+                      this.scrollToBottom();
+                    }
+                    continue;
+                  }
 
                   if (data.text) {
                     this.streamingMessage += data.text;
@@ -353,7 +416,8 @@ block content
             .replace(/\n/g, '<br>')
             .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.+?)\*/g, '<em>$1</em>')
-            .replace(/`(.+?)`/g, '<code class="bg-gray-100 px-1 rounded">$1</code>');
+            .replace(/`(.+?)`/g, '<code class="bg-gray-100 px-1 rounded">$1</code>')
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="text-blue-600 hover:underline">$1</a>');
 
           return formatted;
         },
@@ -387,6 +451,123 @@ block content
 
           // Format as date/time
           return date.toLocaleString();
+        },
+
+        formatDiff(diff) {
+          if (!diff) return '<span class="text-gray-500">No changes to preview</span>';
+
+          // Escape HTML and format diff lines with colors
+          const escaped = diff
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+          return escaped.split('\n').map(line => {
+            if (line.startsWith('+++ ') || line.startsWith('--- ')) {
+              return `<span class="text-gray-600 font-semibold">${line}</span>`;
+            } else if (line.startsWith('+')) {
+              return `<span class="text-green-600 bg-green-50">${line}</span>`;
+            } else if (line.startsWith('-')) {
+              return `<span class="text-red-600 bg-red-50">${line}</span>`;
+            }
+            return `<span class="text-gray-600">${line}</span>`;
+          }).join('\n');
+        },
+
+        async approveModification(modId) {
+          const approval = this.pendingApprovals.find(a => a.modId === modId);
+          if (!approval || approval.processing) return;
+
+          approval.processing = true;
+
+          try {
+            const response = await fetch(`/dashboard/api/chat/approve/${modId}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              }
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+              // Remove from pending approvals
+              this.pendingApprovals = this.pendingApprovals.filter(a => a.modId !== modId);
+
+              // Build success message
+              let message = `File **${approval.filePath}** has been committed successfully.\n\nCommit: \`${result.commitSha?.substring(0, 7) || 'unknown'}\``;
+
+              // Add build info if triggered
+              if (result.build?.triggered) {
+                message += `\n\n**Build triggered:** [View build logs](${result.build.logUrl})`;
+              } else if (result.build?.reason) {
+                message += `\n\n*Build not triggered: ${result.build.reason}*`;
+              }
+
+              // Add success message to chat
+              this.messages.push({
+                id: `msg_${Date.now()}`,
+                role: 'assistant',
+                content: message,
+                timestamp: { _seconds: Math.floor(Date.now() / 1000) }
+              });
+              this.messageCount++;
+              this.scrollToBottom();
+            } else {
+              alert(`Failed to approve: ${result.error || 'Unknown error'}`);
+              approval.processing = false;
+            }
+          } catch (error) {
+            console.error('Approval failed:', error);
+            alert('Failed to approve modification. Please try again.');
+            approval.processing = false;
+          }
+        },
+
+        async rejectApproval(modId) {
+          const approval = this.pendingApprovals.find(a => a.modId === modId);
+          if (!approval || approval.processing) return;
+
+          if (!confirm('Are you sure you want to reject this change? The file will not be modified.')) {
+            return;
+          }
+
+          approval.processing = true;
+
+          try {
+            const response = await fetch(`/dashboard/api/chat/reject/${modId}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              }
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+              // Remove from pending approvals
+              this.pendingApprovals = this.pendingApprovals.filter(a => a.modId !== modId);
+
+              // Add rejection message to chat
+              this.messages.push({
+                id: `msg_${Date.now()}`,
+                role: 'assistant',
+                content: `Change to **${approval.filePath}** was rejected and will not be applied.`,
+                timestamp: { _seconds: Math.floor(Date.now() / 1000) }
+              });
+              this.messageCount++;
+              this.scrollToBottom();
+            } else {
+              alert(`Failed to reject: ${result.error || 'Unknown error'}`);
+              approval.processing = false;
+            }
+          } catch (error) {
+            console.error('Rejection failed:', error);
+            alert('Failed to reject modification. Please try again.');
+            approval.processing = false;
+          }
         }
       }
     }

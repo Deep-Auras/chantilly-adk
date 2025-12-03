@@ -5,6 +5,7 @@ let geminiClient;
 let model;
 let geminiModelName;
 let geminiApiKey;
+let vertexAILocation;
 
 /**
  * Load Gemini configuration from Firestore ONLY
@@ -42,13 +43,15 @@ async function loadGeminiConfig() {
 
     geminiApiKey = data.GEMINI_API_KEY;
     geminiModelName = data.GEMINI_MODEL;
+    vertexAILocation = data.VERTEX_AI_LOCATION || 'us-central1';
 
     logger.info('Loaded Gemini config from Firestore', {
       model: geminiModelName,
-      hasApiKey: true
+      hasApiKey: true,
+      vertexAILocation: vertexAILocation
     });
 
-    return { apiKey: geminiApiKey, model: geminiModelName };
+    return { apiKey: geminiApiKey, model: geminiModelName, location: vertexAILocation };
   } catch (error) {
     logger.error('Failed to load Gemini config from Firestore', {
       error: error.message,
@@ -190,15 +193,24 @@ function createCustomModel(modelConfig = {}) {
 function extractGeminiText(result, options = {}) {
   const { includeLogging = false, logger: customLogger } = options;
 
-  // Extract all parts from the response
-  const allParts = result.candidates?.[0]?.content?.parts || [];
+  // Extract candidate info for debugging
+  const candidate = result.candidates?.[0];
+  const allParts = candidate?.content?.parts || [];
 
   // Optional debug logging
   if (includeLogging && customLogger) {
+    // Log candidate-level info to debug empty parts
     customLogger('Gemini response parts breakdown', {
       hasCandidates: !!result.candidates,
       candidatesLength: result.candidates?.length || 0,
       totalParts: allParts.length,
+      // Debug: Check why parts might be empty
+      finishReason: candidate?.finishReason,
+      hasContent: !!candidate?.content,
+      contentKeys: candidate?.content ? Object.keys(candidate.content) : [],
+      // Check for function calls (might explain empty text parts)
+      hasFunctionCalls: allParts.some(p => p.functionCall),
+      functionCallNames: allParts.filter(p => p.functionCall).map(p => p.functionCall?.name),
       partTypes: allParts.map((p, i) => ({
         index: i,
         keys: Object.keys(p),
@@ -213,6 +225,18 @@ function extractGeminiText(result, options = {}) {
 
   // Filter out thought parts (Gemini 2.5 includes reasoning with thought: true)
   const textParts = allParts.filter(part => !part.thought);
+
+  // Log empty response diagnostics
+  if (allParts.length === 0) {
+    logger.warn('extractGeminiText: Empty parts array', {
+      finishReason: candidate?.finishReason,
+      hasContent: !!candidate?.content,
+      candidateKeys: candidate ? Object.keys(candidate) : [],
+      // Check for blocking/safety issues
+      promptFeedback: result.promptFeedback,
+      usageMetadata: result.usageMetadata
+    });
+  }
 
   logger.info('extractGeminiText result', {
     totalParts: allParts.length,
@@ -245,11 +269,15 @@ async function getVertexAIClient() {
     vertexAIClient = new GoogleGenAI({
       vertexai: true,  // CRITICAL: lowercase 'ai', boolean value (per official Google Cloud docs)
       project: projectId,
-      location: process.env.VERTEX_AI_LOCATION || 'us-central1'
+      location: vertexAILocation || 'us-central1'
     });
     logger.info('Vertex AI client initialized for YouTube URL support', { projectId });
   }
   return vertexAIClient;
+}
+
+function getVertexAILocation() {
+  return vertexAILocation || 'us-central1';
 }
 
 module.exports = {
@@ -258,6 +286,7 @@ module.exports = {
   getGeminiClient,
   getGeminiModelName,
   getVertexAIClient,
+  getVertexAILocation,
   createCustomModel,
   extractGeminiText
 };

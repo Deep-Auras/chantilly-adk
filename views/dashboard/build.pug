@@ -1,0 +1,782 @@
+extends ../layouts/dashboard
+
+block content
+  //- Build Mode Dashboard (Alpine.js reactive)
+  div(x-data="buildManager()")
+    //- Page Header
+    .mb-8
+      .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
+        div
+          h1.text-3xl.font-bold.text-gray-900 Build Mode
+          p.text-gray-600.mt-2 Agent-driven code modification and GitHub integration
+
+        //- Build Mode Toggle
+        .flex.items-center.gap-4
+          .flex.items-center.gap-2
+            span.text-sm.font-medium.text-gray-700 Build Mode
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="buildModeEnabled"
+                @change="toggleBuildMode()"
+                :disabled="!githubConnected || loading"
+              )
+              .w-14.h-7.bg-gray-200.rounded-full.peer(class="peer-checked:bg-green-500 peer-disabled:opacity-50")
+                .absolute.w-6.h-6.bg-white.rounded-full.transition-all.shadow(class="left-0.5 top-0.5 peer-checked:translate-x-7")
+          span.text-sm.font-medium(
+            :class="buildModeEnabled ? 'text-green-600' : 'text-gray-500'"
+            x-text="buildModeEnabled ? 'Active' : 'Disabled'"
+          )
+
+    //- GitHub Connection Status
+    .mb-6
+      template(x-if="!githubConnected")
+        .bg-yellow-50.border.border-yellow-200.rounded-lg.p-4
+          .flex.items-center.gap-3
+            svg.w-6.h-6.text-yellow-500(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+              path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z")
+            div
+              p.font-medium.text-yellow-800 GitHub Not Connected
+              p.text-sm.text-yellow-700 Build Mode requires GitHub integration. Configure GitHub in
+                a.text-yellow-800.underline(href="/dashboard/platforms") Platform Settings
+                | .
+
+      template(x-if="githubConnected")
+        .bg-green-50.border.border-green-200.rounded-lg.p-4
+          .flex.items-center.justify-between
+            .flex.items-center.gap-3
+              svg.w-6.h-6.text-green-500(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z")
+              div
+                p.font-medium.text-green-800 GitHub Connected
+                p.text-sm.text-green-700
+                  span(x-text="'Repository: ' + repository")
+                  span.mx-2 |
+                  span(x-text="'User: ' + githubUser")
+            .flex.items-center.gap-2
+              span.text-sm.text-gray-600 API Requests:
+              span.text-sm.font-medium(x-text="rateLimit.remaining + '/' + rateLimit.limit")
+
+    //- Main Content Grid
+    .grid.grid-cols-1.gap-6(class="lg:grid-cols-3")
+      //- Left Column: Branch Management + Commits
+      .space-y-6(class="lg:col-span-2")
+        //- Branch Management Card
+        .bg-white.rounded-lg.shadow.p-6
+          .flex.items-center.justify-between.mb-4
+            h2.text-xl.font-semibold.text-gray-900 Branch Management
+            button.px-3.py-1.bg-blue-500.text-white.text-sm.rounded-lg.transition-colors(
+              @click="newBranchFrom = currentBranch; showNewBranchModal = true"
+              class="hover:bg-blue-600"
+              :disabled="!buildModeEnabled"
+            ) New Branch
+
+          //- Current Branch Selector
+          .mb-4
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Current Branch
+            .flex.gap-2
+              select.flex-1.px-3.py-2.border.border-gray-300.rounded-lg(
+                x-model="currentBranch"
+                @change="switchBranch()"
+                :disabled="!buildModeEnabled"
+              )
+                template(x-for="branch in branches" :key="branch.name")
+                  option(:value="branch.name" :selected="branch.name === currentBranch" x-text="branch.name")
+              button.px-3.py-2.bg-gray-100.border.border-gray-300.rounded-lg.transition-colors(
+                @click="loadBranches()"
+                class="hover:bg-gray-200"
+                title="Refresh branches"
+              )
+                svg.w-5.h-5.text-gray-600(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                  path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15")
+
+          //- Branch Actions
+          .space-y-2
+            //- Deploy to Branch Button (shown when switched to different branch)
+            template(x-if="currentBranch && currentBranch !== deployedBranch")
+              button.w-full.px-4.py-2.bg-blue-500.text-white.rounded-lg.transition-colors.flex.items-center.justify-center.gap-2(
+                @click="triggerCloudBuild()"
+                class="hover:bg-blue-600 disabled:opacity-50"
+                :disabled="triggeringBuild || !buildModeEnabled"
+              )
+                template(x-if="triggeringBuild")
+                  svg.w-5.h-5.animate-spin(fill="none" viewBox="0 0 24 24")
+                    circle.opacity-25(cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4")
+                    path.opacity-75(fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z")
+                template(x-if="!triggeringBuild")
+                  svg.w-5.h-5(xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24")
+                    polygon(fill="#fff" points="12.15 16.24 15.67 14.21 15.67 10.15 14.49 9.46 10.97 15.56 12.15 16.24")
+                    polygon(fill="#fff" points="8.63 10.15 8.63 14.21 9.81 14.89 13.34 8.8 12.15 8.11 8.63 10.15")
+                    polygon(fill="rgba(255,255,255,0.6)" points="11.46 17.45 7.24 15.01 7.24 10.15 3.49 7.98 3.49 17.18 11.46 21.78 11.46 17.45")
+                    polygon(fill="rgba(255,255,255,0.6)" points="7.93 8.95 12.15 6.51 16.37 8.95 20.13 6.78 12.15 2.17 4.17 6.78 7.93 8.95")
+                    polygon(fill="rgba(255,255,255,0.6)" points="17.06 15.01 12.84 17.45 12.84 21.78 20.82 17.18 20.82 7.98 17.06 10.15 17.06 15.01")
+                span(x-text="triggeringBuild ? 'Deploying...' : 'Deploy ' + currentBranch")
+
+            .flex.gap-2
+              button.flex-1.px-4.py-2.bg-purple-500.text-white.rounded-lg.transition-colors(
+                @click="showMergeModal = true"
+                class="hover:bg-purple-600"
+                :disabled="!buildModeEnabled"
+              ) Merge Branches
+
+        //- Recent Commits Card
+        .bg-white.rounded-lg.shadow.p-6
+          .flex.items-center.justify-between.mb-4
+            h2.text-xl.font-semibold.text-gray-900 Recent Commits
+            button.text-sm.text-blue-500(
+              @click="loadCommits()"
+              class="hover:text-blue-600"
+            ) Refresh
+
+          .space-y-3
+            template(x-if="commits.length === 0")
+              .text-center.py-8.text-gray-500
+                p No commits found
+
+            template(x-for="commit in commits" :key="commit.sha")
+              .flex.items-start.gap-3.p-3.bg-gray-50.rounded-lg
+                .flex-shrink-0.w-10.h-10.bg-gray-200.rounded-full.flex.items-center.justify-center
+                  span.text-sm.font-medium(x-text="commit.author ? commit.author.charAt(0).toUpperCase() : '?'")
+                .flex-1.min-w-0
+                  p.font-medium.text-gray-900.truncate(x-text="commit.message")
+                  .flex.items-center.gap-2.text-sm.text-gray-500.mt-1
+                    span(x-text="commit.author")
+                    span.text-gray-300 |
+                    span(x-text="formatDate(commit.date)")
+                    span.text-gray-300 |
+                    code.text-xs.bg-gray-200.px-1.rounded(x-text="commit.sha.substring(0, 7)")
+
+      //- Right Column: Cloud Builds + Session Info + Pending Modifications
+      .space-y-6
+        //- Cloud Builds Card
+        .bg-white.rounded-lg.shadow.p-6
+          .flex.items-center.justify-between.mb-4
+            h2.text-xl.font-semibold.text-gray-900 Cloud Builds
+            .flex.items-center.gap-2
+              button.px-2.py-1.bg-white.border.border-gray-300.rounded-lg.transition-colors.flex.items-center.gap-1(
+                @click="triggerCloudBuild()"
+                class="hover:bg-gray-50 disabled:opacity-50"
+                :disabled="triggeringBuild"
+                title="Trigger Cloud Build deployment"
+              )
+                template(x-if="triggeringBuild")
+                  svg.w-5.h-5.animate-spin.text-gray-500(fill="none" viewBox="0 0 24 24")
+                    circle.opacity-25(cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4")
+                    path.opacity-75(fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z")
+                template(x-if="!triggeringBuild")
+                  svg.w-5.h-5(xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24")
+                    polygon(fill="#4285f4" points="12.15 16.24 15.67 14.21 15.67 10.15 14.49 9.46 10.97 15.56 12.15 16.24")
+                    polygon(fill="#669df6" points="8.63 10.15 8.63 14.21 9.81 14.89 13.34 8.8 12.15 8.11 8.63 10.15")
+                    polygon(fill="#aecbfa" points="11.46 17.45 7.24 15.01 7.24 10.15 3.49 7.98 3.49 17.18 11.46 21.78 11.46 17.45")
+                    polygon(fill="#aecbfa" points="7.93 8.95 12.15 6.51 16.37 8.95 20.13 6.78 12.15 2.17 4.17 6.78 7.93 8.95")
+                    polygon(fill="#aecbfa" points="17.06 15.01 12.84 17.45 12.84 21.78 20.82 17.18 20.82 7.98 17.06 10.15 17.06 15.01")
+                span.text-sm.text-gray-700(x-text="triggeringBuild ? 'Building...' : 'Deploy'")
+              button.text-sm.text-blue-500(
+                @click="loadCloudBuilds()"
+                class="hover:text-blue-600"
+                title="Refresh builds"
+              )
+                svg.w-4.h-4(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                  path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15")
+
+          //- Cloud Build Console Link
+          template(x-if="cloudBuildConsoleUrl")
+            a.text-xs.text-blue-500.mb-3.block(
+              :href="cloudBuildConsoleUrl"
+              target="_blank"
+              class="hover:text-blue-600"
+            ) View all builds in Cloud Console
+
+          //- Builds List
+          .space-y-2
+            template(x-if="cloudBuilds.length === 0")
+              .text-center.py-4.text-gray-500.text-sm
+                p No recent builds
+
+            template(x-for="build in cloudBuilds" :key="build.buildId")
+              .p-3.bg-gray-50.rounded-lg
+                .flex.items-center.justify-between.mb-1
+                  .flex.items-center.gap-2
+                    //- Status indicator
+                    span.w-2.h-2.rounded-full(
+                      :class="{\
+                        'bg-green-500': build.status === 'SUCCESS',\
+                        'bg-red-500': build.status === 'FAILURE' || build.status === 'TIMEOUT' || build.status === 'CANCELLED',\
+                        'bg-yellow-500': build.status === 'WORKING' || build.status === 'QUEUED',\
+                        'bg-gray-400': !build.status || build.status === 'STATUS_UNKNOWN'\
+                      }"
+                    )
+                    span.text-sm.font-medium(x-text="build.status || 'UNKNOWN'")
+                  a.text-xs.text-blue-500(
+                    :href="build.logUrl"
+                    target="_blank"
+                    class="hover:text-blue-600"
+                  ) View Logs
+                .flex.items-center.gap-2.text-xs.text-gray-500
+                  span(x-text="build.branch")
+                  span.text-gray-300 |
+                  span(x-text="build.triggeredBy || 'system'")
+                  span.text-gray-300 |
+                  span(x-text="formatBuildTime(build.triggeredAt)")
+                template(x-if="build.commitSha")
+                  .text-xs.text-gray-400.mt-1
+                    span Commit:
+                    code.bg-gray-200.px-1.rounded(x-text="build.commitSha?.substring(0, 7)")
+
+        //- Active Session Card
+        .bg-white.rounded-lg.shadow.p-6
+          h2.text-xl.font-semibold.text-gray-900.mb-4 Session Info
+
+          template(x-if="!session")
+            .text-center.py-6.text-gray-500
+              svg.w-12.h-12.mx-auto.mb-3.text-gray-400(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10")
+              p Enable Build Mode to start a session
+
+          template(x-if="session")
+            .space-y-3
+              .flex.justify-between
+                span.text-gray-600 Session ID
+                code.text-sm.bg-gray-100.px-2.rounded(class="py-0.5" x-text="session.sessionId?.substring(0, 8) + '...'")
+              .flex.justify-between
+                span.text-gray-600 Status
+                span.px-2.text-sm.rounded-full(
+                  class="py-0.5"
+                  :class="session.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
+                  x-text="session.status"
+                )
+              .flex.justify-between
+                span.text-gray-600 Branch
+                span.font-medium(x-text="session.branch")
+              .flex.justify-between
+                span.text-gray-600 Commits
+                span.font-medium(x-text="session.commits?.length || 0")
+              .flex.justify-between
+                span.text-gray-600 Files Modified
+                span.font-medium(x-text="session.files?.length || 0")
+
+        //- Pending Modifications Card
+        .bg-white.rounded-lg.shadow.p-6
+          .flex.items-center.justify-between.mb-4
+            h2.text-xl.font-semibold.text-gray-900 Pending Changes
+            span.text-sm.bg-yellow-100.text-yellow-800.px-2.rounded-full(
+              class="py-0.5"
+              x-show="pendingModifications.length > 0"
+              x-text="pendingModifications.length"
+            )
+
+          template(x-if="pendingModifications.length === 0")
+            .text-center.py-6.text-gray-500
+              p No pending modifications
+
+          .space-y-3
+            template(x-for="mod in pendingModifications" :key="mod.id")
+              .p-3.border.border-yellow-200.bg-yellow-50.rounded-lg
+                .flex.items-center.justify-between.mb-2
+                  span.font-medium.text-gray-900.truncate(x-text="mod.filePath")
+                  span.text-xs.px-2.rounded-full(
+                    class="py-0.5"
+                    :class="{'bg-green-100 text-green-800': mod.operation === 'create', 'bg-blue-100 text-blue-800': mod.operation === 'update', 'bg-red-100 text-red-800': mod.operation === 'delete'}"
+                    x-text="mod.operation"
+                  )
+                .flex.gap-2.mt-2
+                  button.flex-1.px-3.py-1.bg-green-500.text-white.text-sm.rounded.transition-colors(
+                    @click="approveMod(mod.id)"
+                    class="hover:bg-green-600"
+                  ) Approve
+                  button.flex-1.px-3.py-1.bg-red-500.text-white.text-sm.rounded.transition-colors(
+                    @click="rejectMod(mod.id)"
+                    class="hover:bg-red-600"
+                  ) Reject
+
+    //- New Branch Modal
+    div(
+      x-show="showNewBranchModal"
+      x-cloak
+      @keydown.escape.window="showNewBranchModal = false"
+      class="fixed inset-0 z-50 overflow-y-auto"
+    )
+      .fixed.inset-0.bg-black.bg-opacity-50(@click="showNewBranchModal = false")
+      .fixed.inset-0.flex.items-center.justify-center.p-4.pointer-events-none
+        .bg-white.rounded-lg.shadow-xl.max-w-md.w-full.p-6.relative.pointer-events-auto
+          h3.text-lg.font-semibold.text-gray-900.mb-4 Create New Branch
+          .space-y-4
+            div
+              label.block.text-sm.font-medium.text-gray-700.mb-2 Branch Name
+              input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+                type="text"
+                x-model="newBranchName"
+                placeholder="feature/my-feature"
+                @keyup.enter="createBranch()"
+              )
+            div
+              label.block.text-sm.font-medium.text-gray-700.mb-2 From Branch
+              select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(x-model="newBranchFrom")
+                template(x-for="branch in branches" :key="branch.name")
+                  option(:value="branch.name" x-text="branch.name")
+          .flex.gap-3.mt-6
+            button.flex-1.px-4.py-2.bg-gray-100.text-gray-700.rounded-lg.transition-colors(
+              @click="showNewBranchModal = false"
+              class="hover:bg-gray-200"
+            ) Cancel
+            button.flex-1.px-4.py-2.bg-blue-500.text-white.rounded-lg.transition-colors(
+              @click="createBranch()"
+              class="hover:bg-blue-600"
+              :disabled="!newBranchName"
+            ) Create
+
+    //- Merge Modal
+    div(
+      x-show="showMergeModal"
+      x-cloak
+      @keydown.escape.window="showMergeModal = false"
+      class="fixed inset-0 z-50 overflow-y-auto"
+    )
+      .fixed.inset-0.bg-black.bg-opacity-50(@click="showMergeModal = false")
+      .fixed.inset-0.flex.items-center.justify-center.p-4.pointer-events-none
+        .bg-white.rounded-lg.shadow-xl.max-w-md.w-full.p-6.relative.pointer-events-auto
+          h3.text-lg.font-semibold.text-gray-900.mb-4 Merge Branches
+          .space-y-4
+            div
+              label.block.text-sm.font-medium.text-gray-700.mb-2 Merge From (Head)
+              select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(x-model="mergeHead")
+                template(x-for="branch in branches" :key="branch.name")
+                  option(:value="branch.name" x-text="branch.name")
+            div
+              label.block.text-sm.font-medium.text-gray-700.mb-2 Into (Base)
+              select.w-full.px-3.py-2.border.border-gray-300.rounded-lg(x-model="mergeBase")
+                template(x-for="branch in branches" :key="branch.name")
+                  option(:value="branch.name" x-text="branch.name")
+            div
+              label.block.text-sm.font-medium.text-gray-700.mb-2 Commit Message (optional)
+              input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+                type="text"
+                x-model="mergeMessage"
+                placeholder="Merge feature into main"
+              )
+          .flex.gap-3.mt-6
+            button.flex-1.px-4.py-2.bg-gray-100.text-gray-700.rounded-lg.transition-colors(
+              @click="showMergeModal = false"
+              class="hover:bg-gray-200"
+            ) Cancel
+            button.flex-1.px-4.py-2.bg-purple-500.text-white.rounded-lg.transition-colors(
+              @click="mergeBranches()"
+              class="hover:bg-purple-600"
+              :disabled="!mergeHead || !mergeBase || mergeHead === mergeBase"
+            ) Merge
+
+  //- Alpine.js Build Manager
+  script.
+    function buildManager() {
+      return {
+        // State
+        loading: false,
+        githubConnected: false,
+        githubUser: '',
+        repository: '',
+        rateLimit: { remaining: 0, limit: 0 },
+        buildModeEnabled: false,
+        currentBranch: 'main',
+        deployedBranch: 'main',  // Track what's currently deployed
+        branches: [],
+        commits: [],
+        session: null,
+        pendingModifications: [],
+
+        // Cloud Build state
+        cloudBuilds: [],
+        cloudBuildConfigured: false,
+        cloudBuildConsoleUrl: null,
+        triggeringBuild: false,
+        buildRefreshInterval: null,
+
+        // Modals
+        showNewBranchModal: false,
+        showMergeModal: false,
+        newBranchName: '',
+        newBranchFrom: 'main',
+        mergeHead: '',
+        mergeBase: 'main',
+        mergeMessage: '',
+
+        async init() {
+          await this.checkGitHubStatus();
+          if (this.githubConnected) {
+            // Load branches first so dropdown is populated
+            await this.loadBranches();
+            // Then load build status which sets currentBranch
+            await this.loadBuildStatus();
+            // Ensure currentBranch is valid (exists in branches list)
+            if (this.branches.length > 0) {
+              const branchExists = this.branches.some(b => b.name === this.currentBranch);
+              if (!branchExists) {
+                // Default to first branch if current doesn't exist
+                this.currentBranch = this.branches[0].name;
+              }
+            }
+            await this.loadCommits();
+            await this.loadSession();
+            await this.loadModifications();
+          }
+          // Load cloud builds regardless of GitHub connection
+          await this.loadCloudBuildConfig();
+          await this.loadCloudBuilds();
+          // Start auto-refresh for in-progress builds
+          this.startBuildRefresh();
+        },
+
+        destroy() {
+          // Clean up interval on component destroy
+          if (this.buildRefreshInterval) {
+            clearInterval(this.buildRefreshInterval);
+          }
+        },
+
+        startBuildRefresh() {
+          // Refresh builds every 30 seconds if there are in-progress builds
+          this.buildRefreshInterval = setInterval(() => {
+            const hasInProgress = this.cloudBuilds.some(b =>
+              b.status === 'QUEUED' || b.status === 'WORKING'
+            );
+            if (hasInProgress) {
+              this.loadCloudBuilds();
+            }
+          }, 30000);
+        },
+
+        async checkGitHubStatus() {
+          try {
+            const response = await fetch('/api/build/github/status', { credentials: 'same-origin' });
+            const data = await response.json();
+            this.githubConnected = data.connected === true;
+            this.githubUser = data.user || '';
+            this.repository = data.repository || '';
+
+            if (this.githubConnected) {
+              await this.loadRateLimit();
+            }
+          } catch (e) {
+            this.githubConnected = false;
+          }
+        },
+
+        async loadRateLimit() {
+          try {
+            const response = await fetch('/api/build/github/rate-limit', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.rateLimit = {
+                remaining: data.remaining || 0,
+                limit: data.limit || 0
+              };
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async loadBuildStatus() {
+          try {
+            const response = await fetch('/api/build/status', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.buildModeEnabled = data.enabled === true;
+              this.currentBranch = data.currentBranch || 'main';
+              this.deployedBranch = data.currentBranch || 'main';  // Track deployed branch
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async loadBranches() {
+          try {
+            const response = await fetch('/api/build/branches', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.branches = data.branches || [];
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async loadCommits() {
+          try {
+            const response = await fetch(`/api/build/github/commits/${this.currentBranch}?limit=10`, { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.commits = data.commits || [];
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async loadSession() {
+          try {
+            const response = await fetch('/api/build/session', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.session = data.session;
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async loadModifications() {
+          try {
+            const response = await fetch('/api/build/modifications', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.pendingModifications = (data.modifications || []).filter(m => !m.userApproved && !m.rejected);
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async toggleBuildMode() {
+          this.loading = true;
+          const endpoint = this.buildModeEnabled ? '/api/build/enable' : '/api/build/disable';
+          try {
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({ branch: this.currentBranch })
+            });
+            const data = await response.json();
+            if (data.success) {
+              await this.loadSession();
+            } else {
+              this.buildModeEnabled = !this.buildModeEnabled;
+              alert(data.error || 'Failed to toggle build mode');
+            }
+          } catch (e) {
+            this.buildModeEnabled = !this.buildModeEnabled;
+            alert('Failed to toggle build mode');
+          }
+          this.loading = false;
+        },
+
+        async switchBranch() {
+          try {
+            const response = await fetch('/api/build/branches/switch', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({ branch: this.currentBranch })
+            });
+            const data = await response.json();
+            if (data.success) {
+              await this.loadCommits();
+            } else {
+              alert(data.error || 'Failed to switch branch');
+            }
+          } catch (e) {
+            alert('Failed to switch branch');
+          }
+        },
+
+        async createBranch() {
+          if (!this.newBranchName) return;
+          try {
+            const response = await fetch('/api/build/branches/create', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                branchName: this.newBranchName,
+                fromBranch: this.newBranchFrom
+              })
+            });
+            const data = await response.json();
+            if (data.success) {
+              await this.loadBranches();
+              this.currentBranch = this.newBranchName;
+              this.showNewBranchModal = false;
+              this.newBranchName = '';
+              // Persist the branch switch to database
+              await this.switchBranch();
+            } else {
+              alert(data.error || 'Failed to create branch');
+            }
+          } catch (e) {
+            alert('Failed to create branch');
+          }
+        },
+
+        async mergeBranches() {
+          try {
+            const response = await fetch('/api/build/branches/merge', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                head: this.mergeHead,
+                base: this.mergeBase,
+                commitMessage: this.mergeMessage
+              })
+            });
+            const data = await response.json();
+            if (data.success) {
+              await this.loadCommits();
+              this.showMergeModal = false;
+              this.mergeHead = '';
+              this.mergeMessage = '';
+              alert('Branches merged successfully!');
+            } else {
+              alert(data.error || 'Failed to merge branches');
+            }
+          } catch (e) {
+            alert('Failed to merge branches');
+          }
+        },
+
+        async approveMod(modId) {
+          try {
+            const response = await fetch(`/api/build/modifications/${modId}/approve`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              }
+            });
+            const data = await response.json();
+            if (data.success) {
+              await this.loadModifications();
+              await this.loadSession();
+              await this.loadCommits();
+            } else {
+              alert(data.error || 'Failed to approve modification');
+            }
+          } catch (e) {
+            alert('Failed to approve modification');
+          }
+        },
+
+        async rejectMod(modId) {
+          const reason = prompt('Rejection reason (optional):');
+          try {
+            const response = await fetch(`/api/build/modifications/${modId}/reject`, {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({ reason })
+            });
+            const data = await response.json();
+            if (data.success) {
+              await this.loadModifications();
+            } else {
+              alert(data.error || 'Failed to reject modification');
+            }
+          } catch (e) {
+            alert('Failed to reject modification');
+          }
+        },
+
+        formatDate(dateStr) {
+          if (!dateStr) return '';
+          const date = new Date(dateStr);
+          return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        },
+
+        // Cloud Build Methods
+        async loadCloudBuildConfig() {
+          try {
+            const response = await fetch('/api/build/cloud-builds/config', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.cloudBuildConfigured = data.configured;
+              this.cloudBuildConsoleUrl = data.consoleUrl;
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async loadCloudBuilds() {
+          try {
+            const response = await fetch('/api/build/cloud-builds?limit=5', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.cloudBuilds = data.builds || [];
+            }
+          } catch (e) {
+            // Ignore
+          }
+        },
+
+        async triggerCloudBuild() {
+          if (this.triggeringBuild) return;
+          this.triggeringBuild = true;
+          try {
+            const response = await fetch('/api/build/cloud-builds/trigger', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({ branch: this.currentBranch })
+            });
+            const data = await response.json();
+            if (data.success) {
+              // Update deployed branch to hide the deploy button
+              this.deployedBranch = this.currentBranch;
+              // Refresh builds to show the new one
+              await this.loadCloudBuilds();
+              alert('Build triggered successfully! Build ID: ' + data.buildId);
+            } else {
+              alert(data.error || 'Failed to trigger build');
+            }
+          } catch (e) {
+            alert('Failed to trigger build: ' + e.message);
+          }
+          this.triggeringBuild = false;
+        },
+
+        formatBuildTime(timestamp) {
+          if (!timestamp) return 'Unknown';
+          // Handle Firestore timestamp
+          let date;
+          if (timestamp._seconds) {
+            date = new Date(timestamp._seconds * 1000);
+          } else if (typeof timestamp === 'string') {
+            date = new Date(timestamp);
+          } else {
+            return 'Unknown';
+          }
+          // Show relative time for recent builds
+          const now = new Date();
+          const diff = now - date;
+          const minutes = Math.floor(diff / 60000);
+          const hours = Math.floor(diff / 3600000);
+          const days = Math.floor(diff / 86400000);
+
+          if (minutes < 1) return 'Just now';
+          if (minutes < 60) return minutes + 'm ago';
+          if (hours < 24) return hours + 'h ago';
+          if (days < 7) return days + 'd ago';
+          return date.toLocaleDateString();
+        }
+      }
+    }

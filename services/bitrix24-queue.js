@@ -68,7 +68,6 @@ class SimpleQueue {
     this.queue = [];
   }
 }
-const config = require('../config/env');
 const { logger } = require('../utils/logger');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { convertForBitrixChat } = require('../utils/markdownToBB');
@@ -101,11 +100,12 @@ class SlidingWindow {
 
 class Bitrix24QueueManager {
   constructor() {
-    // Rate limits from Bitrix24 specifications
+    // Rate limits from Bitrix24 specifications (will be loaded from Firestore)
     this.limits = {
-      perSecond: config.RATE_LIMIT_PER_SECOND || 2,
-      per10Minutes: config.RATE_LIMIT_PER_10MIN || 10000,
+      perSecond: 2,
+      per10Minutes: 10000,
       cooldownMs: 600000, // 10 minutes
+      maxRetries: 3,
       methodLimits: {
         'im.message.add': { perSecond: 1 },
         'crm.deal.list': { perMinute: 250 },
@@ -126,8 +126,8 @@ class Bitrix24QueueManager {
     this.queue = null;
     this.initialized = false;
 
-    // Sliding window for 10-minute limit
-    this.slidingWindow = new SlidingWindow(600000, this.limits.per10Minutes);
+    // Sliding window for 10-minute limit (will be initialized after config load)
+    this.slidingWindow = null;
 
     // Cooldown tracking
     this.cooldownUntil = null;
@@ -143,6 +143,9 @@ class Bitrix24QueueManager {
     // Firestore for persistence
     this.db = null;
 
+    // Bitrix24 webhook URL (loaded from Firestore)
+    this.webhookUrl = null;
+
     // Security: API validator for Bitrix24 calls
     this.apiValidator = new BitrixAPIValidator();
   }
@@ -151,6 +154,29 @@ class Bitrix24QueueManager {
     if (this.initialized) {return;}
 
     try {
+      // Initialize Firestore
+      this.db = getFirestore();
+
+      // Load configuration from Firestore
+      const configDoc = await this.db.collection('agent').doc('config').get();
+      if (configDoc.exists) {
+        const config = configDoc.data();
+        this.limits.perSecond = parseInt(config.RATE_LIMIT_PER_SECOND) || 2;
+        this.limits.per10Minutes = parseInt(config.RATE_LIMIT_PER_10MIN) || 10000;
+        this.limits.maxRetries = parseInt(config.QUEUE_MAX_RETRIES) || 3;
+      }
+
+      // Load Bitrix24 platform config
+      const platformDoc = await this.db.collection('agent').doc('platforms')
+        .collection('bitrix24').doc('config').get();
+      if (platformDoc.exists) {
+        const platformConfig = platformDoc.data();
+        this.webhookUrl = platformConfig.webhookUrl;
+      }
+
+      // Initialize sliding window with loaded config
+      this.slidingWindow = new SlidingWindow(600000, this.limits.per10Minutes);
+
       // Initialize SimpleQueue
       this.queue = new SimpleQueue({
         concurrency: this.limits.perSecond,
@@ -158,13 +184,13 @@ class Bitrix24QueueManager {
         intervalCap: this.limits.perSecond
       });
 
-      // Initialize Firestore
-      this.db = getFirestore();
-
       this.initialized = true;
-      logger.info('Queue manager initialized', { limits: this.limits });
+      logger.info('Bitrix24 Queue manager initialized from Firestore', {
+        limits: this.limits,
+        hasWebhookUrl: !!this.webhookUrl
+      });
     } catch (error) {
-      logger.error('Failed to initialize queue manager', error);
+      logger.error('Failed to initialize queue manager', { error: error.message });
       throw error;
     }
   }
@@ -496,7 +522,7 @@ class Bitrix24QueueManager {
     let attempts = 0;
 
     // SECURITY: Validate and cap maxRetries to prevent infinite loops
-    const rawMaxRetries = request.maxRetries !== undefined ? request.maxRetries : (config.QUEUE_MAX_RETRIES || 3);
+    const rawMaxRetries = request.maxRetries !== undefined ? request.maxRetries : this.limits.maxRetries;
     const maxRetries = Math.min(
       Math.max(0, parseInt(rawMaxRetries) || 0),
       10  // HARD LIMIT - never more than 10 retries
@@ -623,7 +649,7 @@ class Bitrix24QueueManager {
         } else {
           logger.warn('Bot auth not found for imbot method, falling back to webhook URL', { method });
           return {
-            restUrl: config.BITRIX24_INBOUND_WEBHOOK.replace(/[^/]*$/, ''),
+            restUrl: this.webhookUrl ? this.webhookUrl.replace(/[^/]*$/, '') : '',
             accessToken: null
           };
         }
@@ -634,15 +660,15 @@ class Bitrix24QueueManager {
           reason: method ? `${method.split('.')[0]}.* methods use webhook auth` : 'default_webhook_auth'
         });
         return {
-          restUrl: config.BITRIX24_INBOUND_WEBHOOK.replace(/[^/]*$/, ''),
+          restUrl: this.webhookUrl ? this.webhookUrl.replace(/[^/]*$/, '') : '',
           accessToken: null
         };
       }
     } catch (error) {
-      logger.error('Failed to get authentication config', error);
+      logger.error('Failed to get authentication config', { error: error.message });
       // Fallback to webhook URL
       return {
-        restUrl: config.BITRIX24_INBOUND_WEBHOOK.replace(/[^/]*$/, ''),
+        restUrl: this.webhookUrl ? this.webhookUrl.replace(/[^/]*$/, '') : '',
         accessToken: null
       };
     }
@@ -977,15 +1003,18 @@ class Bitrix24QueueManager {
       };
     } else {
       // Use webhook URL format (for CRM methods or when bot auth unavailable)
-      const webhookUrl = `${config.BITRIX24_INBOUND_WEBHOOK}${request.method}`;
-      
+      if (!this.webhookUrl) {
+        throw new Error('Bitrix24 webhook URL not configured. Please configure in dashboard.');
+      }
+      const webhookUrl = `${this.webhookUrl}${request.method}`;
+
       logger.debug('Using webhook URL for API call', {
         method: request.method,
         webhookUrl: webhookUrl.substring(0, 50) + '...',
         hasMessage: !!request.params.MESSAGE,
         reason: request.method.startsWith('crm.') ? 'crm_method' : 'no_bot_auth'
       });
-      
+
       const response = await axios.post(webhookUrl, request.params, requestConfig);
       return response.data;
     }

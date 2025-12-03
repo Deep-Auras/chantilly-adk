@@ -623,7 +623,7 @@ class KnowledgeManagementTool extends BaseTool {
     }
 
     // Feature flag check (all features fully rolled out)
-    const useVectorSearch = FeatureFlags.shouldUseVectorSearch();
+    const useVectorSearch = await FeatureFlags.shouldUseVectorSearch();
 
     if (!useVectorSearch) {
       this.log('info', 'Vector search disabled by feature flag, using keyword search');

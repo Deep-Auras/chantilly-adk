@@ -24,7 +24,7 @@ block content
             class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           )
             option(value="bitrix24") Bitrix24
-            option(value="google-workspace") Google Workspace
+            option(value="chantilly") Chantilly User Management
 
     //- Core Configuration Section
     .bg-white.rounded-lg.shadow.p-6.mb-6
@@ -82,13 +82,13 @@ block content
             .flex.gap-2
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
-                x-model="securityKeys.JWT_SECRET"
+                x-model="securityKeys.jwtSecret"
                 :placeholder="hasJwtSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
                 type="button"
-                @click="generateSecret('JWT_SECRET')"
+                @click="generateSecret('jwtSecret')"
                 class="hover:bg-green-700"
               ) Generate
 
@@ -97,13 +97,13 @@ block content
             .flex.gap-2
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
-                x-model="securityKeys.DASHBOARD_SESSION_SECRET"
+                x-model="securityKeys.sessionSecret"
                 :placeholder="hasDashboardSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
                 type="button"
-                @click="generateSecret('DASHBOARD_SESSION_SECRET')"
+                @click="generateSecret('sessionSecret')"
                 class="hover:bg-green-700"
               ) Generate
 
@@ -352,24 +352,8 @@ block content
               .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
               .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
-          div
-            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable CORS
-            label.relative.inline-flex.items-center.cursor-pointer
-              input.sr-only.peer(
-                type="checkbox"
-                x-model="systemConfig.ENABLE_CORS"
-              )
-              .w-11.h-6.bg-gray-200.rounded-full(class="peer-checked:bg-blue-600")
-              .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
-
-          div
-            label.block.text-sm.font-medium.text-gray-700.mb-2 Allowed Origins (comma-separated)
-            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
-              type="text"
-              x-model="systemConfig.ALLOWED_ORIGINS"
-              placeholder="https://example.com,https://app.example.com"
-              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            )
+          //- CORS removed - not needed since dashboard/API are same-origin on Cloud Run
+          //- Webhooks are server-to-server and don't use CORS
 
           //- Cloud Tasks
           div
@@ -637,16 +621,16 @@ block content
         },
         hasGeminiKey: #{!!config.GEMINI_API_KEY},
         securityKeys: {
-          JWT_SECRET: '',
-          DASHBOARD_SESSION_SECRET: '',
+          jwtSecret: '',
+          sessionSecret: '',
           CREDENTIAL_ENCRYPTION_KEY: ''
         },
-        hasJwtSecret: #{!!config.JWT_SECRET},
-        hasDashboardSecret: #{!!config.DASHBOARD_SESSION_SECRET},
+        hasJwtSecret: #{!!config.jwtSecret},
+        hasDashboardSecret: #{!!config.sessionSecret},
         hasEncryptionKey: #{!!config.CREDENTIAL_ENCRYPTION_KEY},
         geminiConfig: {
-          GEMINI_MODEL: '#{config.GEMINI_MODEL || "gemini-2.5-pro"}',
-          VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || "us-central1"}'
+          GEMINI_MODEL: '#{config.GEMINI_MODEL || ""}',
+          VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || ""}'
         },
         systemConfig: {
           FIRESTORE_DATABASE_ID: '#{config.FIRESTORE_DATABASE_ID || "(default)"}',
@@ -666,8 +650,6 @@ block content
           FILE_CLEANUP_DAYS: #{config.FILE_CLEANUP_DAYS || 7},
           MAX_FILE_SIZE_MB: #{config.MAX_FILE_SIZE_MB || 10},
           ENABLE_HELMET: #{config.ENABLE_HELMET !== false},
-          ENABLE_CORS: #{config.ENABLE_CORS !== false},
-          ALLOWED_ORIGINS: '#{config.ALLOWED_ORIGINS || ""}',
           CLOUD_TASKS_LOCATION: '#{config.CLOUD_TASKS_LOCATION || "us-central1"}',
           CLOUD_TASKS_QUEUE: '#{config.CLOUD_TASKS_QUEUE || "default"}',
           USE_CLOUD_LOGGING: #{config.USE_CLOUD_LOGGING !== false},
