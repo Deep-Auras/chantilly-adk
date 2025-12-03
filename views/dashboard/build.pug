@@ -91,12 +91,33 @@ block content
                   path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15")
 
           //- Branch Actions
-          .flex.gap-2
-            button.flex-1.px-4.py-2.bg-purple-500.text-white.rounded-lg.transition-colors(
-              @click="showMergeModal = true"
-              class="hover:bg-purple-600"
-              :disabled="!buildModeEnabled"
-            ) Merge Branches
+          .space-y-2
+            //- Deploy to Branch Button (shown when switched to different branch)
+            template(x-if="currentBranch && currentBranch !== deployedBranch")
+              button.w-full.px-4.py-2.bg-blue-500.text-white.rounded-lg.transition-colors.flex.items-center.justify-center.gap-2(
+                @click="triggerCloudBuild()"
+                class="hover:bg-blue-600 disabled:opacity-50"
+                :disabled="triggeringBuild || !buildModeEnabled"
+              )
+                template(x-if="triggeringBuild")
+                  svg.w-5.h-5.animate-spin(fill="none" viewBox="0 0 24 24")
+                    circle.opacity-25(cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4")
+                    path.opacity-75(fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z")
+                template(x-if="!triggeringBuild")
+                  svg.w-5.h-5(xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24")
+                    polygon(fill="#fff" points="12.15 16.24 15.67 14.21 15.67 10.15 14.49 9.46 10.97 15.56 12.15 16.24")
+                    polygon(fill="#fff" points="8.63 10.15 8.63 14.21 9.81 14.89 13.34 8.8 12.15 8.11 8.63 10.15")
+                    polygon(fill="rgba(255,255,255,0.6)" points="11.46 17.45 7.24 15.01 7.24 10.15 3.49 7.98 3.49 17.18 11.46 21.78 11.46 17.45")
+                    polygon(fill="rgba(255,255,255,0.6)" points="7.93 8.95 12.15 6.51 16.37 8.95 20.13 6.78 12.15 2.17 4.17 6.78 7.93 8.95")
+                    polygon(fill="rgba(255,255,255,0.6)" points="17.06 15.01 12.84 17.45 12.84 21.78 20.82 17.18 20.82 7.98 17.06 10.15 17.06 15.01")
+                span(x-text="triggeringBuild ? 'Deploying...' : 'Deploy ' + currentBranch")
+
+            .flex.gap-2
+              button.flex-1.px-4.py-2.bg-purple-500.text-white.rounded-lg.transition-colors(
+                @click="showMergeModal = true"
+                class="hover:bg-purple-600"
+                :disabled="!buildModeEnabled"
+              ) Merge Branches
 
         //- Recent Commits Card
         .bg-white.rounded-lg.shadow.p-6
@@ -356,6 +377,7 @@ block content
         rateLimit: { remaining: 0, limit: 0 },
         buildModeEnabled: false,
         currentBranch: 'main',
+        deployedBranch: 'main',  // Track what's currently deployed
         branches: [],
         commits: [],
         session: null,
@@ -460,6 +482,7 @@ block content
             if (data.success) {
               this.buildModeEnabled = data.enabled === true;
               this.currentBranch = data.currentBranch || 'main';
+              this.deployedBranch = data.currentBranch || 'main';  // Track deployed branch
             }
           } catch (e) {
             // Ignore
@@ -717,6 +740,8 @@ block content
             });
             const data = await response.json();
             if (data.success) {
+              // Update deployed branch to hide the deploy button
+              this.deployedBranch = this.currentBranch;
               // Refresh builds to show the new one
               await this.loadCloudBuilds();
               alert('Build triggered successfully! Build ID: ' + data.buildId);
