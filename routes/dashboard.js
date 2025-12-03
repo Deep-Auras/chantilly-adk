@@ -1490,11 +1490,14 @@ router.get('/api/chat/messages', async (req, res) => {
 router.get('/api/chat/pending-approvals', async (req, res) => {
   try {
     const db = getFirestore();
+    const branch = req.query.branch || 'main';
 
     // Get pending modifications that haven't been approved yet
     // Note: Edit/WriteFile tools set userApproved: false initially
+    // Filter by branch to only show approvals for the current branch
     const modsSnapshot = await db.collection('code-modifications')
       .where('userApproved', '==', false)
+      .where('branch', '==', branch)
       .orderBy('createdAt', 'desc')
       .limit(20)
       .get();
@@ -1998,7 +2001,9 @@ router.post('/api/chat/reject/:modId', async (req, res) => {
     }
 
     // Update modification record as rejected
+    // Set userApproved to null so it's excluded from pending queries
     await modRef.update({
+      userApproved: null,
       rejected: true,
       rejectedBy: req.user.username,
       rejectedAt: FieldValue.serverTimestamp()

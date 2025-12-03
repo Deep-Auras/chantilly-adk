@@ -191,6 +191,8 @@ block content
         autoScroll: true,
         pendingApprovals: [],
         batchApproving: false,
+        currentBranch: 'main',
+        buildModeEnabled: false,
 
         async init() {
           try {
@@ -208,10 +210,13 @@ block content
             const data = await response.json();
             this.conversationId = data.conversationId;
 
+            // Load build mode status to get current branch
+            await this.loadBuildStatus();
+
             // Load initial messages
             await this.loadMessages();
 
-            // Load any pending approvals from database
+            // Load any pending approvals from database (filtered by branch)
             await this.loadPendingApprovals();
 
             // Subscribe to real-time updates via Firestore
@@ -258,9 +263,24 @@ block content
           // 3. Assistant messages added immediately via SSE stream
         },
 
+        async loadBuildStatus() {
+          try {
+            const response = await fetch('/api/build/status', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.buildModeEnabled = data.enabled === true;
+              this.currentBranch = data.currentBranch || 'main';
+            }
+          } catch (e) {
+            console.error('Failed to load build status:', e);
+          }
+        },
+
         async loadPendingApprovals() {
           try {
-            const response = await fetch('/dashboard/api/chat/pending-approvals', {
+            // Pass current branch to filter approvals
+            const url = `/dashboard/api/chat/pending-approvals?branch=${encodeURIComponent(this.currentBranch)}`;
+            const response = await fetch(url, {
               headers: {
                 'X-CSRF-Token': window.csrfToken
               }
