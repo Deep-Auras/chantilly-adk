@@ -18,8 +18,13 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { logger } = require('../utils/logger');
 const { getFirestore, getFieldValue } = require('../config/firestore');
+const { sanitizeInput } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Apply sanitizeInput to POST routes for consistency with auth routes
+// This ensures passwords are stored with the same encoding as when compared during login
+router.use(sanitizeInput);
 
 /**
  * Check if setup is needed
