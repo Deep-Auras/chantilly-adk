@@ -21,19 +21,31 @@ function decodeHtmlEntities(str) {
   if (!str || typeof str !== 'string') {
     return str;
   }
-  // First pass: decode &amp; to & (handles double-encoding)
-  let decoded = str.replace(/&amp;/gi, '&');
-  // Second pass: decode all HTML entities
-  decoded = decoded
-    .replace(/&#x2F;/gi, '/')    // Forward slash
-    .replace(/&#47;/g, '/')       // Forward slash (decimal)
-    .replace(/&#x5C;/gi, '\\')   // Backslash
-    .replace(/&#92;/g, '\\')      // Backslash (decimal)
-    .replace(/&#x27;/gi, '\'')   // Single quote
-    .replace(/&#39;/g, '\'')      // Single quote (decimal)
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"');
+
+  let decoded = str;
+  let prevDecoded = '';
+
+  // Keep decoding until no more changes (handles multiple levels of encoding)
+  while (decoded !== prevDecoded) {
+    prevDecoded = decoded;
+
+    // Decode &amp; to & (handles double-encoding like &amp;#x2F;)
+    decoded = decoded.replace(/&amp;/gi, '&');
+
+    // Decode HTML entities
+    decoded = decoded
+      .replace(/&#x2F;/gi, '/')    // Forward slash (hex)
+      .replace(/&#47;/gi, '/')     // Forward slash (decimal)
+      .replace(/&#x5C;/gi, '\\')   // Backslash (hex)
+      .replace(/&#92;/gi, '\\')    // Backslash (decimal)
+      .replace(/&#x27;/gi, '\'')   // Single quote (hex)
+      .replace(/&#39;/gi, '\'')    // Single quote (decimal)
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"');
+  }
+
+  logger.debug('decodeHtmlEntities', { original: str, decoded });
   return decoded;
 }
 
@@ -182,6 +194,12 @@ router.get('/status', async (req, res) => {
   try {
     const buildModeManager = getBuildModeManager();
     const status = await buildModeManager.getStatus();
+
+    // Decode currentBranch in case it was stored with HTML entities
+    // This ensures the client always receives a clean branch name
+    if (status.currentBranch) {
+      status.currentBranch = decodeHtmlEntities(status.currentBranch);
+    }
 
     res.json({
       success: true,
