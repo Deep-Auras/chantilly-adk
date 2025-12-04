@@ -94,14 +94,6 @@ Two service accounts need additional permissions:
    - Add Gemini API key
    - Review & confirm
 
-#### 7. Firestore Indexes (Automatic)
-
-Firestore indexes are required for vector search and optimized queries. **Indexes are deployed automatically during Cloud Build** - no manual steps required.
-
-The build process runs `firebase deploy --only firestore:indexes` in parallel with the Docker build, using the index definitions in `firestore.indexes.json`.
-
-**First Deployment Note**: After the first build, indexes may take 5-10 minutes to finish building. Check status in [Firestore Console](https://console.cloud.google.com/firestore/indexes) under **Indexes**. Subsequent deployments only update changed indexes.
-
 ---
 
 ### Local Development (Optional)
