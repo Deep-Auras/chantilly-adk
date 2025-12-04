@@ -360,14 +360,30 @@ let authService;
 async function initializeAuthService() {
   if (!authService) {
     authService = new AuthService();
+  }
+
+  // Always try to initialize if not yet initialized
+  if (!authService.initialized) {
     await authService.initialize();
   }
+
+  return authService;
+}
+
+/**
+ * Reinitialize auth service after setup wizard completes.
+ * This is needed because on fresh deployment, auth service fails to initialize
+ * (no jwtSecret exists yet), and needs to be reinitialized after setup creates one.
+ */
+async function reinitializeAuthService() {
+  authService = new AuthService();
+  await authService.initialize();
   return authService;
 }
 
 function getAuthService() {
-  if (!authService) {
-    throw new Error('Auth service not initialized');
+  if (!authService || !authService.initialized) {
+    throw new Error('Auth service not initialized. Please complete setup at /setup');
   }
   return authService;
 }
@@ -375,5 +391,6 @@ function getAuthService() {
 module.exports = {
   AuthService,
   initializeAuthService,
+  reinitializeAuthService,
   getAuthService
 };
