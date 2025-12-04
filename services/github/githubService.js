@@ -504,6 +504,124 @@ class GitHubService {
   }
 
   /**
+   * Create a batch commit with multiple file changes in a single commit
+   * Uses Git Trees API for atomic multi-file commits
+   *
+   * @param {Array} files - Array of file changes: { path, content, operation: 'create'|'update'|'delete' }
+   * @param {string} message - Commit message
+   * @param {string} branch - Target branch
+   * @returns {Object} Commit result with SHA and URL
+   */
+  async createBatchCommit(files, message, branch = 'main', owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    if (!files || files.length === 0) {
+      throw new Error('No files provided for batch commit');
+    }
+
+    logger.info('Creating batch commit', {
+      fileCount: files.length,
+      branch,
+      paths: files.map(f => f.path)
+    });
+
+    // 1. Get the current commit SHA for the branch
+    const { data: refData } = await this.octokit.rest.git.getRef({
+      owner,
+      repo,
+      ref: `heads/${branch}`
+    });
+    const currentCommitSha = refData.object.sha;
+
+    // 2. Get the tree SHA from the current commit
+    const { data: commitData } = await this.octokit.rest.git.getCommit({
+      owner,
+      repo,
+      commit_sha: currentCommitSha
+    });
+    const baseTreeSha = commitData.tree.sha;
+
+    // 3. Build tree entries for each file
+    const treeEntries = [];
+
+    for (const file of files) {
+      if (file.operation === 'delete') {
+        // For deletes, we set sha to null which removes the file
+        treeEntries.push({
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: null
+        });
+      } else {
+        // For create/update, create a blob first
+        const { data: blobData } = await this.octokit.rest.git.createBlob({
+          owner,
+          repo,
+          content: Buffer.from(file.content, 'utf-8').toString('base64'),
+          encoding: 'base64'
+        });
+
+        treeEntries.push({
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: blobData.sha
+        });
+      }
+    }
+
+    // 4. Create a new tree with all the changes
+    const { data: newTreeData } = await this.octokit.rest.git.createTree({
+      owner,
+      repo,
+      base_tree: baseTreeSha,
+      tree: treeEntries
+    });
+
+    // 5. Create a commit pointing to the new tree
+    const { data: newCommitData } = await this.octokit.rest.git.createCommit({
+      owner,
+      repo,
+      message,
+      tree: newTreeData.sha,
+      parents: [currentCommitSha]
+    });
+
+    // 6. Update the branch reference to point to the new commit
+    await this.octokit.rest.git.updateRef({
+      owner,
+      repo,
+      ref: `heads/${branch}`,
+      sha: newCommitData.sha
+    });
+
+    logger.info('Batch commit created successfully', {
+      commitSha: newCommitData.sha,
+      branch,
+      fileCount: files.length,
+      paths: files.map(f => f.path)
+    });
+
+    // Invalidate tree cache for this branch
+    this.treeCache.delete(`${owner}/${repo}/${branch}`);
+
+    return {
+      commit: {
+        sha: newCommitData.sha,
+        message: newCommitData.message,
+        url: `https://github.com/${owner}/${repo}/commit/${newCommitData.sha}`
+      },
+      files: files.map(f => ({
+        path: f.path,
+        operation: f.operation
+      }))
+    };
+  }
+
+  /**
    * Get the full repository tree (cached)
    * Single API call returns entire repo structure
    */
@@ -597,6 +715,176 @@ class GitHubService {
         additions: f.additions,
         deletions: f.deletions
       }))
+    };
+  }
+
+  /**
+   * Revert a specific commit by creating a new commit that undoes its changes
+   * @param {string} sha - The commit SHA to revert
+   * @param {string} branch - The branch to apply the revert on
+   * @param {string} owner - Repository owner (optional)
+   * @param {string} repo - Repository name (optional)
+   * @returns {Object} The revert commit info
+   */
+  async revertCommit(sha, branch, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    logger.info('Starting commit revert', { sha, branch, owner, repo });
+
+    // Get the commit details including files changed
+    const { data: commitData } = await this.octokit.rest.repos.getCommit({
+      owner,
+      repo,
+      ref: sha
+    });
+
+    if (!commitData.parents || commitData.parents.length === 0) {
+      throw new Error('Cannot revert the initial commit');
+    }
+
+    const parentSha = commitData.parents[0].sha;
+    const files = commitData.files || [];
+
+    if (files.length === 0) {
+      throw new Error('No files changed in this commit');
+    }
+
+    logger.info('Commit has files to revert', {
+      sha,
+      parentSha,
+      fileCount: files.length,
+      files: files.map(f => ({ path: f.filename, status: f.status }))
+    });
+
+    // Build the list of files to restore to parent state
+    const filesToCommit = [];
+
+    for (const file of files) {
+      try {
+        if (file.status === 'added') {
+          // File was added - delete it by setting content to null
+          filesToCommit.push({
+            path: file.filename,
+            content: null, // Signal deletion
+            operation: 'delete'
+          });
+        } else if (file.status === 'removed') {
+          // File was deleted - restore from parent
+          const parentContent = await this.getFileContents(file.filename, parentSha, owner, repo);
+          filesToCommit.push({
+            path: file.filename,
+            content: parentContent.content,
+            operation: 'create'
+          });
+        } else {
+          // File was modified - restore from parent
+          const parentContent = await this.getFileContents(file.filename, parentSha, owner, repo);
+          filesToCommit.push({
+            path: file.filename,
+            content: parentContent.content,
+            operation: 'update'
+          });
+        }
+      } catch (fileError) {
+        logger.warn('Failed to process file for revert', {
+          filename: file.filename,
+          status: file.status,
+          error: fileError.message
+        });
+        throw new Error(`Failed to revert file ${file.filename}: ${fileError.message}`);
+      }
+    }
+
+    // Create revert commit message
+    const originalMessage = commitData.commit.message.split('\n')[0]; // First line only
+    const revertMessage = `Revert "${originalMessage}"\n\nThis reverts commit ${sha.substring(0, 7)}.`;
+
+    // Use createBatchCommit-like logic to create the revert
+    // Get current branch ref
+    const { data: refData } = await this.octokit.rest.git.getRef({
+      owner,
+      repo,
+      ref: `heads/${branch}`
+    });
+    const currentCommitSha = refData.object.sha;
+
+    // Get the current commit's tree
+    const { data: currentCommit } = await this.octokit.rest.git.getCommit({
+      owner,
+      repo,
+      commit_sha: currentCommitSha
+    });
+    const baseTreeSha = currentCommit.tree.sha;
+
+    // Create blobs and tree entries for each file
+    const treeEntries = [];
+
+    for (const file of filesToCommit) {
+      if (file.operation === 'delete') {
+        // To delete a file, we omit it from the tree (use sha: null with mode 100644)
+        treeEntries.push({
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: null // null SHA deletes the file
+        });
+      } else {
+        // Create blob for file content
+        const { data: blob } = await this.octokit.rest.git.createBlob({
+          owner,
+          repo,
+          content: file.content,
+          encoding: 'utf-8'
+        });
+
+        treeEntries.push({
+          path: file.path,
+          mode: '100644',
+          type: 'blob',
+          sha: blob.sha
+        });
+      }
+    }
+
+    // Create new tree
+    const { data: newTree } = await this.octokit.rest.git.createTree({
+      owner,
+      repo,
+      tree: treeEntries,
+      base_tree: baseTreeSha
+    });
+
+    // Create the revert commit
+    const { data: newCommit } = await this.octokit.rest.git.createCommit({
+      owner,
+      repo,
+      message: revertMessage,
+      tree: newTree.sha,
+      parents: [currentCommitSha]
+    });
+
+    // Update branch ref
+    await this.octokit.rest.git.updateRef({
+      owner,
+      repo,
+      ref: `heads/${branch}`,
+      sha: newCommit.sha
+    });
+
+    logger.info('Commit reverted successfully', {
+      originalSha: sha,
+      revertSha: newCommit.sha,
+      branch,
+      filesReverted: files.length
+    });
+
+    return {
+      sha: newCommit.sha,
+      message: revertMessage,
+      url: `https://github.com/${owner}/${repo}/commit/${newCommit.sha}`,
+      filesReverted: files.map(f => f.filename)
     };
   }
 

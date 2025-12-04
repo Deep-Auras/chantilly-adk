@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { verifyToken, sanitizeInput } = require('../middleware/auth');
 const { getBuildModeManager } = require('../services/build/buildModeManager');
 const { getBuildModeTriggerService } = require('../services/build/buildModeTriggerService');
+const { getBuildMemoryService } = require('../services/build/buildMemoryService');
 const { getGitHubService } = require('../services/github/githubService');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
@@ -20,19 +21,31 @@ function decodeHtmlEntities(str) {
   if (!str || typeof str !== 'string') {
     return str;
   }
-  // First pass: decode &amp; to & (handles double-encoding)
-  let decoded = str.replace(/&amp;/gi, '&');
-  // Second pass: decode all HTML entities
-  decoded = decoded
-    .replace(/&#x2F;/gi, '/')    // Forward slash
-    .replace(/&#47;/g, '/')       // Forward slash (decimal)
-    .replace(/&#x5C;/gi, '\\')   // Backslash
-    .replace(/&#92;/g, '\\')      // Backslash (decimal)
-    .replace(/&#x27;/gi, '\'')   // Single quote
-    .replace(/&#39;/g, '\'')      // Single quote (decimal)
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"');
+
+  let decoded = str;
+  let prevDecoded = '';
+
+  // Keep decoding until no more changes (handles multiple levels of encoding)
+  while (decoded !== prevDecoded) {
+    prevDecoded = decoded;
+
+    // Decode &amp; to & (handles double-encoding like &amp;#x2F;)
+    decoded = decoded.replace(/&amp;/gi, '&');
+
+    // Decode HTML entities
+    decoded = decoded
+      .replace(/&#x2F;/gi, '/')    // Forward slash (hex)
+      .replace(/&#47;/gi, '/')     // Forward slash (decimal)
+      .replace(/&#x5C;/gi, '\\')   // Backslash (hex)
+      .replace(/&#92;/gi, '\\')    // Backslash (decimal)
+      .replace(/&#x27;/gi, '\'')   // Single quote (hex)
+      .replace(/&#39;/gi, '\'')    // Single quote (decimal)
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"');
+  }
+
+  logger.debug('decodeHtmlEntities', { original: str, decoded });
   return decoded;
 }
 
@@ -181,6 +194,12 @@ router.get('/status', async (req, res) => {
   try {
     const buildModeManager = getBuildModeManager();
     const status = await buildModeManager.getStatus();
+
+    // Decode currentBranch in case it was stored with HTML entities
+    // This ensures the client always receives a clean branch name
+    if (status.currentBranch) {
+      status.currentBranch = decodeHtmlEntities(status.currentBranch);
+    }
 
     res.json({
       success: true,
@@ -798,6 +817,9 @@ router.post('/modifications/:modId/approve', modificationLimiter, requireBuildAc
       approvedBy: req.user.username
     });
 
+    // Note: Memory extraction happens after build success/failure, not on approval
+    // Approval only means the user okayed the change - build results determine if it was good
+
     res.json({
       success: true,
       commitSha: result.commit.sha,
@@ -807,6 +829,151 @@ router.post('/modifications/:modId/approve', modificationLimiter, requireBuildAc
     logger.error('Failed to approve modification', {
       error: error.message,
       modId: req.params.modId
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/build/modifications/approve-batch
+ * Approve and apply multiple modifications in a single commit
+ * This batches all approved files into one commit to trigger only one build
+ */
+router.post('/modifications/approve-batch', modificationLimiter, requireBuildAccess, async (req, res) => {
+  try {
+    const { modIds, commitMessage } = req.body;
+
+    // Validate input
+    if (!modIds || !Array.isArray(modIds) || modIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'modIds must be a non-empty array'
+      });
+    }
+
+    if (modIds.length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot batch more than 50 modifications at once'
+      });
+    }
+
+    const db = getFirestore();
+    const FieldValue = getFieldValue();
+
+    // Fetch all modifications
+    const mods = [];
+    let branch = null;
+
+    for (const modId of modIds) {
+      const modRef = db.collection('code-modifications').doc(modId);
+      const modDoc = await modRef.get();
+
+      if (!modDoc.exists) {
+        return res.status(404).json({
+          success: false,
+          error: `Modification ${modId} not found`
+        });
+      }
+
+      const mod = modDoc.data();
+
+      if (mod.userApproved) {
+        return res.status(400).json({
+          success: false,
+          error: `Modification ${modId} already approved`
+        });
+      }
+
+      // All modifications must be on the same branch
+      if (branch === null) {
+        branch = mod.branch;
+      } else if (mod.branch !== branch) {
+        return res.status(400).json({
+          success: false,
+          error: 'All modifications must be on the same branch'
+        });
+      }
+
+      mods.push({ modId, ref: modRef, data: mod });
+    }
+
+    // Build files array for batch commit
+    const files = [];
+    for (const mod of mods) {
+      if (mod.data.operation === 'delete') {
+        files.push({
+          path: mod.data.filePath,
+          operation: 'delete'
+        });
+      } else {
+        files.push({
+          path: mod.data.filePath,
+          content: mod.data.afterContent,
+          operation: mod.data.operation
+        });
+      }
+    }
+
+    // Create combined commit message if not provided
+    const finalMessage = commitMessage ||
+      `Batch update: ${mods.map(m => m.data.filePath.split('/').pop()).join(', ')}`;
+
+    // Create batch commit
+    const githubService = getGitHubService();
+    const result = await githubService.createBatchCommit(files, finalMessage, branch);
+
+    // Update all modification records
+    const batch = db.batch();
+    for (const mod of mods) {
+      batch.update(mod.ref, {
+        userApproved: true,
+        approvedBy: req.user.username,
+        approvedAt: FieldValue.serverTimestamp(),
+        appliedAt: FieldValue.serverTimestamp(),
+        committedAt: FieldValue.serverTimestamp(),
+        commitSha: result.commit.sha,
+        batchCommit: true
+      });
+    }
+    await batch.commit();
+
+    // Add to session
+    const buildModeManager = getBuildModeManager();
+    const session = await buildModeManager.getCurrentSession(req.user.username);
+    if (session) {
+      await buildModeManager.addCommitToSession(session.sessionId, {
+        sha: result.commit.sha,
+        message: finalMessage
+      });
+      for (const mod of mods) {
+        await buildModeManager.addFileToSession(session.sessionId, {
+          path: mod.data.filePath,
+          status: mod.data.operation === 'create' ? 'created' : mod.data.operation
+        });
+      }
+    }
+
+    logger.info('Batch modifications approved and applied', {
+      modIds,
+      commitSha: result.commit.sha,
+      fileCount: files.length,
+      approvedBy: req.user.username
+    });
+
+    res.json({
+      success: true,
+      commitSha: result.commit.sha,
+      commitUrl: result.commit.url,
+      filesCommitted: files.length
+    });
+  } catch (error) {
+    logger.error('Failed to approve batch modifications', {
+      error: error.message,
+      modIds: req.body.modIds
     });
     res.status(500).json({
       success: false,
@@ -847,6 +1014,16 @@ router.post('/modifications/:modId/reject', requireBuildAccess, async (req, res)
       modId,
       rejectedBy: req.user.username,
       reason
+    });
+
+    // Extract memory from rejection (async, don't block response)
+    const modData = modDoc.data();
+    const buildMemoryService = getBuildMemoryService();
+    buildMemoryService.extractFromRejection(modData, reason).catch(err => {
+      logger.warn('Failed to extract memory from rejection', {
+        error: err.message,
+        modId
+      });
     });
 
     res.json({
@@ -945,6 +1122,77 @@ router.get('/github/commits/:branch', requireBuildAccess, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to list commits'
+    });
+  }
+});
+
+/**
+ * POST /api/build/github/revert
+ * Revert a specific commit by creating a new commit that undoes its changes
+ */
+router.post('/github/revert', requireBuildAccess, async (req, res) => {
+  try {
+    const { sha } = req.body;
+    // Decode HTML entities from branch name (e.g., &#x2F; -> /)
+    const branch = req.body.branch ? decodeHtmlEntities(req.body.branch) : null;
+
+    if (!sha || typeof sha !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Commit SHA is required'
+      });
+    }
+
+    if (!branch || typeof branch !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Branch name is required'
+      });
+    }
+
+    // Validate SHA format (40 hex characters or 7+ for short SHA)
+    if (!/^[a-f0-9]{7,40}$/i.test(sha)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid commit SHA format'
+      });
+    }
+
+    logger.info('Reverting commit', {
+      sha,
+      branch,
+      user: req.user.username
+    });
+
+    const githubService = getGitHubService();
+    const result = await githubService.revertCommit(sha, branch);
+
+    logger.info('Commit reverted successfully', {
+      originalSha: sha,
+      revertSha: result.sha,
+      branch,
+      user: req.user.username,
+      filesReverted: result.filesReverted
+    });
+
+    res.json({
+      success: true,
+      revertCommit: {
+        sha: result.sha,
+        message: result.message,
+        url: result.url
+      },
+      filesReverted: result.filesReverted
+    });
+  } catch (error) {
+    logger.error('Failed to revert commit', {
+      error: error.message,
+      sha: req.body.sha,
+      branch: req.body.branch
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to revert commit'
     });
   }
 });

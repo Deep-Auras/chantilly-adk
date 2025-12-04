@@ -721,6 +721,7 @@ Return ONLY the modified JavaScript code, starting with the first line of code.`
       message += '**⚠️ NOTE:** The next time you run this task, it will use the updated template code.';
 
       // ✅ PHASE 1.2: Extract lessons learned from user modification
+      const config = require('../config/env');
       if (config.REASONING_MEMORY_ENABLED && wasIntelligentModification) {
         try {
           const { getMemoryExtractor } = require('../services/memoryExtractor');

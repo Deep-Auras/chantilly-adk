@@ -92,6 +92,21 @@ class GoogleChatService {
   }
 
   /**
+   * Get user-friendly error message for common API errors
+   */
+  getFriendlyErrorMessage(error) {
+    const errorMsg = error?.message || String(error);
+    if (errorMsg.includes('503') || errorMsg.includes('overloaded')) {
+      return 'The AI service is temporarily overloaded. Please try again in a few moments.';
+    } else if (errorMsg.includes('429') || errorMsg.includes('quota')) {
+      return 'Too many requests. Please wait a moment before trying again.';
+    } else if (errorMsg.includes('401') || errorMsg.includes('403')) {
+      return 'There was an authentication issue with the AI service.';
+    }
+    return 'I encountered an error processing your message.';
+  }
+
+  /**
    * PHASE 16.4: Cleanup stale dedup locks from Firestore
    * Removes entries older than 5 minutes (safety measure - should auto-expire)
    */
@@ -448,9 +463,10 @@ class GoogleChatService {
             } else if (result.type === 'error') {
               // Send error via Chat API
               try {
+                const friendlyMsg = this.getFriendlyErrorMessage(result.error);
                 await this.sendMessage(
                   eventData.space.name,
-                  `❌ Sorry, I encountered an error: ${result.error.message}`,
+                  `❌ ${friendlyMsg}`,
                   result.threadKey
                 );
               } catch (sendError) {
@@ -485,8 +501,9 @@ class GoogleChatService {
         // CRITICAL: Remove dedup lock after error
         await this.cleanupDedupLock(sanitizedMessageId);
 
+        const friendlyMsg = this.getFriendlyErrorMessage(raceResult.error);
         return {
-          text: '❌ Sorry, I encountered an error processing your message.'
+          text: `❌ ${friendlyMsg}`
         };
       }
     } catch (error) {
@@ -498,8 +515,9 @@ class GoogleChatService {
       // CRITICAL: Remove dedup lock on exception
       await this.cleanupDedupLock(sanitizedMessageId);
 
+      const friendlyMsg = this.getFriendlyErrorMessage(error);
       return {
-        text: '❌ Sorry, I encountered an error processing your message.'
+        text: `❌ ${friendlyMsg}`
       };
     }
   }
@@ -536,9 +554,10 @@ class GoogleChatService {
       });
 
       try {
+        const friendlyMsg = this.getFriendlyErrorMessage(error);
         await this.sendMessage(
           eventData.space.name,
-          `❌ Sorry, I encountered an error: ${error.message}`,
+          `❌ ${friendlyMsg}`,
           eventData.message?.thread?.name || null
         );
       } catch (sendError) {

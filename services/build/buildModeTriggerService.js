@@ -8,6 +8,7 @@ const { getFirestore, getFieldValue } = require('../../config/firestore');
 const { logger } = require('../../utils/logger');
 const embeddingService = require('../embeddingService');
 const { getBuildModeManager } = require('./buildModeManager');
+const { getBuildMemoryService } = require('./buildMemoryService');
 
 // Default trigger phrases with categories
 const DEFAULT_TRIGGERS = [
@@ -180,7 +181,59 @@ class BuildModeTriggerService {
       };
     }
 
-    // 3. Generate embedding for user message
+    // 3. KEYWORD DETECTION (first-pass, before semantic matching)
+    // Check for exact phrase matches - these should always trigger regardless of surrounding context
+    const keywordTriggers = [
+      { pattern: /create\s+(?:a\s+)?(?:new\s+)?tool/i, category: 'build_tool' },
+      { pattern: /build\s+(?:a\s+)?(?:new\s+)?tool/i, category: 'build_tool' },
+      { pattern: /make\s+(?:a\s+)?(?:new\s+)?tool/i, category: 'build_tool' },
+      { pattern: /add\s+(?:a\s+)?(?:new\s+)?tool/i, category: 'build_tool' },
+      { pattern: /create\s+(?:a\s+)?(?:new\s+)?service/i, category: 'build_service' },
+      { pattern: /build\s+(?:a\s+)?(?:new\s+)?service/i, category: 'build_service' },
+      { pattern: /create\s+(?:a\s+)?(?:new\s+)?feature/i, category: 'build_feature' },
+      { pattern: /implement\s+(?:a\s+)?(?:new\s+)?feature/i, category: 'build_feature' },
+      { pattern: /modify\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
+      { pattern: /update\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
+      { pattern: /change\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
+      { pattern: /edit\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
+      { pattern: /fix\s+(?:the\s+)?(?:bug|issue|error)/i, category: 'bug_fix' },
+      { pattern: /refactor\s+(?:the\s+)?/i, category: 'refactoring' }
+    ];
+
+    for (const trigger of keywordTriggers) {
+      if (trigger.pattern.test(userMessage)) {
+        logger.info('Build mode triggered via keyword detection', {
+          userMessage: userMessage.substring(0, 100),
+          matchedPattern: trigger.pattern.toString(),
+          category: trigger.category
+        });
+
+        // Retrieve memories for code generation context
+        let memories = [];
+        let memoryGuidance = '';
+        try {
+          const { getBuildMemoryService } = require('./buildMemoryService');
+          const buildMemoryService = getBuildMemoryService();
+          memories = await buildMemoryService.retrieveForCodeGeneration(userMessage, null, 5);
+          memoryGuidance = buildMemoryService.formatMemoriesForPrompt(memories);
+        } catch (memoryError) {
+          logger.warn('Failed to retrieve memories for build mode', { error: memoryError.message });
+        }
+
+        return {
+          inject: true,
+          matchedPhrase: trigger.pattern.toString(),
+          category: trigger.category,
+          similarity: 1.0, // Exact keyword match
+          matchType: 'keyword',
+          memories: memories,
+          memoryGuidance: memoryGuidance
+        };
+      }
+    }
+
+    // 4. SEMANTIC SIMILARITY (fallback if no keyword match)
+    // Generate embedding for user message
     let messageEmbedding;
     try {
       messageEmbedding = await embeddingService.embedQuery(
@@ -198,7 +251,7 @@ class BuildModeTriggerService {
       };
     }
 
-    // 4. Find best matching trigger phrase
+    // 5. Find best matching trigger phrase
     let bestMatch = { similarity: 0, trigger: null, phrase: null };
 
     for (const [phrase, trigger] of this.triggerEmbeddings) {
@@ -212,7 +265,7 @@ class BuildModeTriggerService {
       }
     }
 
-    // 5. Check if similarity exceeds threshold
+    // 6. Check if similarity exceeds threshold
     if (bestMatch.similarity >= this.similarityThreshold) {
       logger.info('Build mode prompt triggered', {
         userMessage: userMessage.substring(0, 100),
@@ -221,11 +274,36 @@ class BuildModeTriggerService {
         similarity: bestMatch.similarity.toFixed(4)
       });
 
+      // 6. Retrieve relevant memories for code generation context
+      let memories = [];
+      let memoryGuidance = '';
+      try {
+        const buildMemoryService = getBuildMemoryService();
+        memories = await buildMemoryService.retrieveForCodeGeneration(
+          userMessage,
+          null, // No specific file path from trigger
+          5     // Top 5 memories
+        );
+        memoryGuidance = buildMemoryService.formatMemoriesForPrompt(memories);
+
+        logger.info('Retrieved memories for build mode', {
+          memoryCount: memories.length,
+          hasGuidance: memoryGuidance.length > 0
+        });
+      } catch (memoryError) {
+        logger.warn('Failed to retrieve memories for build mode', {
+          error: memoryError.message
+        });
+      }
+
       return {
         inject: true,
         matchedPhrase: bestMatch.phrase,
         category: bestMatch.trigger.category,
-        similarity: bestMatch.similarity
+        similarity: bestMatch.similarity,
+        matchType: 'semantic',
+        memories: memories,
+        memoryGuidance: memoryGuidance
       };
     }
 

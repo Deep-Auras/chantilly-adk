@@ -97,6 +97,9 @@ class WriteFile extends BaseTool {
         // File doesn't exist - creating new
       }
 
+      // Generate diff for preview
+      const diff = this.generateDiff(beforeContent, content);
+
       // Create modification record for approval
       const modRef = db.collection('code-modifications').doc();
       await modRef.set({
@@ -109,6 +112,7 @@ class WriteFile extends BaseTool {
         afterContent: content,
         commitMessage: commit_message,
         branch: targetBranch,
+        diff,
         userApproved: false,
         toolName: this.name,
         createdAt: FieldValue.serverTimestamp()
@@ -123,7 +127,7 @@ class WriteFile extends BaseTool {
           operation,
           filePath: file_path,
           message: `File ${operation} request created. Waiting for user approval.`,
-          diff: this.generateDiff(beforeContent, content)
+          diff
         };
       }
 

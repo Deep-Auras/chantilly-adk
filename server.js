@@ -56,6 +56,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Note: csurf is deprecated, using custom CSRF implementation
 const session = require('express-session');
 const flash = require('connect-flash');
+const FirestoreStore = require('firestore-store')(session);
 
 // CRITICAL: Load session secret from Firestore, not env vars
 // Generate and store persistent session secret in Firestore if it doesn't exist
@@ -80,28 +81,60 @@ const getSessionSecret = async () => {
 
 // Session management for dashboard (initialized after services start)
 let sessionMiddleware = null;
+let sessionInitialized = false;
+
 const initSession = async () => {
-  const secret = await getSessionSecret();
-  sessionMiddleware = session({
-    secret: secret,
-    resave: false,
-    saveUninitialized: false,
-    proxy: true, // Trust proxy headers from Cloud Run
-    cookie: {
-      secure: false, // CRITICAL: Set to false because Cloud Run doesn't send X-Forwarded-Proto header
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: 'lax'
+  try {
+    const secret = await getSessionSecret();
+    const { getFirestore } = require('./config/firestore');
+    const db = getFirestore();
+
+    if (!db) {
+      throw new Error('Firestore database not available');
     }
-  });
+
+    logger.info('Creating Firestore session store');
+
+    // Create Firestore session store for persistence across Cloud Run revisions
+    const firestoreStore = new FirestoreStore({
+      database: db
+    });
+
+    sessionMiddleware = session({
+      store: firestoreStore,
+      name: 'chantilly.sid', // Custom session cookie name
+      secret: secret,
+      resave: true, // Required for firestore-store
+      saveUninitialized: true, // Required for firestore-store
+      proxy: true, // Trust proxy headers from Cloud Run
+      cookie: {
+        secure: false, // CRITICAL: Set to false because Cloud Run doesn't send X-Forwarded-Proto header
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        sameSite: 'lax'
+      }
+    });
+
+    sessionInitialized = true;
+    logger.info('Session middleware initialized with Firestore store');
+  } catch (error) {
+    logger.error('Failed to initialize session', { error: error.message, stack: error.stack });
+    throw error;
+  }
 };
 
 // Apply session middleware (will be initialized after Firestore is ready)
 app.use((req, res, next) => {
   if (sessionMiddleware) {
-    sessionMiddleware(req, res, next);
+    sessionMiddleware(req, res, (err) => {
+      if (err) {
+        logger.error('Session middleware error', { error: err.message, path: req.path });
+      }
+      next(err);
+    });
   } else {
-    // Session not ready yet, skip for now (only affects startup)
+    // Session not ready yet, skip for now (only affects startup and health checks)
+    logger.debug('Session middleware not ready', { path: req.path });
     next();
   }
 });

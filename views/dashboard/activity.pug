@@ -109,6 +109,7 @@ block content
         async loadActivity() {
           try {
             const response = await fetch('/api/dashboard/activity?limit=100', {
+              credentials: 'same-origin',
               headers: {
                 'X-CSRF-Token': window.csrfToken
               }
@@ -142,7 +143,9 @@ block content
 
             // Time range filter
             if (this.filterTimeRange !== 'all' && log.timestamp) {
-              const logTime = log.timestamp.seconds ? log.timestamp.seconds * 1000 : new Date(log.timestamp).getTime();
+              // Handle Firestore Timestamp (serialized as _seconds or native as seconds)
+              const seconds = log.timestamp._seconds || log.timestamp.seconds;
+              const logTime = seconds ? seconds * 1000 : new Date(log.timestamp).getTime();
               const now = Date.now();
               const ranges = {
                 '1h': 60 * 60 * 1000,
@@ -171,13 +174,16 @@ block content
           if (!timestamp) return 'Unknown';
 
           let date;
-          if (timestamp.seconds) {
-            date = new Date(timestamp.seconds * 1000);
+          // Handle Firestore Timestamp (serialized as _seconds or native as seconds)
+          const seconds = timestamp._seconds || timestamp.seconds;
+          if (seconds) {
+            date = new Date(seconds * 1000);
           } else {
             date = new Date(timestamp);
           }
 
-          return date.toLocaleString();
+          // Use UTC to match server-side formatting on Cloud Run
+          return date.toLocaleString('en-US', { timeZone: 'UTC' });
         },
 
         formatAction(action) {

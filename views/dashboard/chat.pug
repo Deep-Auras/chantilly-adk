@@ -1,8 +1,9 @@
 extends ../layouts/dashboard
 
 block content
-  div(x-data="chatController()" x-init="init()" @keydown.escape="showSettings = false")
-    .flex.flex-col(style="height: calc(100vh - 12rem)")
+  //- Use negative margins to counteract container padding and fill nearly full viewport
+  div.-my-8.-mx-4.px-4(x-data="chatController()" x-init="init()" @keydown.escape="showSettings = false" class="md:-mx-6 md:-my-10 md:px-6" style="height: calc(100vh - 2rem)")
+    .flex.flex-col.h-full
 
       //- Chat Header
       .bg-white.rounded-t-lg.shadow.px-6.py-4.border-b.border-gray-200
@@ -84,6 +85,25 @@ block content
                     .w-2.h-2.bg-gray-400.rounded-full.animate-bounce(style="animation-delay: 150ms")
                     .w-2.h-2.bg-gray-400.rounded-full.animate-bounce(style="animation-delay: 300ms")
 
+        //- Batch Approval Header (shown when 2+ approvals pending)
+        template(x-if="pendingApprovals.length >= 2")
+          .flex.justify-start.mt-4
+            .max-w-3xl.w-full.bg-blue-50.border.border-blue-200.rounded-lg.shadow.p-4
+              .flex.items-center.justify-between
+                .flex.items-center.gap-2
+                  svg.w-5.h-5.text-blue-600(fill="none" stroke="currentColor" viewBox="0 0 24 24")
+                    path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10")
+                  span.text-sm.font-medium.text-blue-800
+                    span(x-text="pendingApprovals.length")
+                    |  files pending approval
+                button.px-4.py-2.text-sm.font-medium.text-white.bg-blue-600.rounded-md(
+                  @click="batchApproveAll()"
+                  :disabled="batchApproving"
+                  class="hover:bg-blue-700 disabled:opacity-50"
+                )
+                  span(x-show="!batchApproving") Approve All & Commit Once
+                  span(x-show="batchApproving" x-cloak) Committing...
+
         //- Pending Approvals
         template(x-for="(approval, index) in pendingApprovals" :key="approval.modId")
           .flex.justify-start.mt-4
@@ -136,10 +156,12 @@ block content
                 x-model="newMessage"
                 x-ref="messageInput"
                 @keydown.enter.prevent="handleEnterKey($event)"
+                @input="autoResizeTextarea($event)"
                 :disabled="streaming"
                 placeholder="Type your message..."
                 rows="1"
                 maxlength="10000"
+                style="min-height: 48px; max-height: 96px; overflow-y: auto;"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
               )
               .text-xs.text-gray-500.mt-1(x-show="newMessage.length > 0" x-cloak)
@@ -171,6 +193,9 @@ block content
         unsubscribe: null,
         autoScroll: true,
         pendingApprovals: [],
+        batchApproving: false,
+        currentBranch: 'main',
+        buildModeEnabled: false,
 
         async init() {
           try {
@@ -188,8 +213,14 @@ block content
             const data = await response.json();
             this.conversationId = data.conversationId;
 
+            // Load build mode status to get current branch
+            await this.loadBuildStatus();
+
             // Load initial messages
             await this.loadMessages();
+
+            // Load any pending approvals from database (filtered by branch)
+            await this.loadPendingApprovals();
 
             // Subscribe to real-time updates via Firestore
             this.subscribeToMessages();
@@ -235,6 +266,52 @@ block content
           // 3. Assistant messages added immediately via SSE stream
         },
 
+        async loadBuildStatus() {
+          try {
+            const response = await fetch('/api/build/status', { credentials: 'same-origin' });
+            const data = await response.json();
+            if (data.success) {
+              this.buildModeEnabled = data.enabled === true;
+              this.currentBranch = data.currentBranch || 'main';
+            }
+          } catch (e) {
+            console.error('Failed to load build status:', e);
+          }
+        },
+
+        async loadPendingApprovals() {
+          try {
+            // Pass current branch to filter approvals
+            const url = `/dashboard/api/chat/pending-approvals?branch=${encodeURIComponent(this.currentBranch)}`;
+            const response = await fetch(url, {
+              headers: {
+                'X-CSRF-Token': window.csrfToken
+              }
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && data.pendingApprovals) {
+                // Only add approvals that aren't already in the list
+                for (const approval of data.pendingApprovals) {
+                  const exists = this.pendingApprovals.some(a => a.modId === approval.modId);
+                  if (!exists) {
+                    this.pendingApprovals.push({
+                      modId: approval.modId,
+                      filePath: approval.filePath,
+                      operation: approval.operation,
+                      diff: approval.diff,
+                      processing: false
+                    });
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load pending approvals:', error);
+          }
+        },
+
         getLastMessageTime() {
           if (this.messages.length === 0) return 0;
           const lastMsg = this.messages[this.messages.length - 1];
@@ -246,6 +323,11 @@ block content
 
           const message = this.newMessage.trim();
           this.newMessage = '';
+
+          // Reset textarea height after clearing
+          if (this.$refs.messageInput) {
+            this.$refs.messageInput.style.height = '48px';
+          }
 
           // Add user message to UI immediately
           this.messages.push({
@@ -283,58 +365,77 @@ block content
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let currentEventType = 'message';
+            let buffer = '';
 
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
 
-              const chunk = decoder.decode(value);
-              const lines = chunk.split('\n');
+              // Accumulate chunks in buffer to handle split events
+              buffer += decoder.decode(value, { stream: true });
 
-              for (const line of lines) {
-                // Track event type
-                if (line.startsWith('event: ')) {
-                  currentEventType = line.slice(7).trim();
-                  continue;
-                }
+              // Process complete events (separated by double newline)
+              const events = buffer.split('\n\n');
+              // Keep the last incomplete event in the buffer
+              buffer = events.pop() || '';
 
-                if (line.startsWith('data: ')) {
-                  const data = JSON.parse(line.slice(6));
+              for (const eventBlock of events) {
+                if (!eventBlock.trim()) continue;
+                const lines = eventBlock.split('\n');
 
-                  // Handle approval events
-                  if (currentEventType === 'approval' && data.approval) {
-                    this.pendingApprovals.push({
-                      ...data.approval,
-                      processing: false
-                    });
-                    if (this.autoScroll) {
-                      this.scrollToBottom();
-                    }
+                for (const line of lines) {
+                  // Track event type
+                  if (line.startsWith('event: ')) {
+                    currentEventType = line.slice(7).trim();
                     continue;
                   }
 
-                  if (data.text) {
-                    this.streamingMessage += data.text;
-                    if (this.autoScroll) {
-                      this.scrollToBottom();
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6));
+
+                      // Handle approval events
+                      if (currentEventType === 'approval' && data.approval) {
+                        console.log('Received approval event:', data.approval);
+                        this.pendingApprovals.push({
+                          modId: data.approval.modId,
+                          filePath: data.approval.filePath,
+                          operation: data.approval.operation,
+                          diff: data.approval.diff || '',
+                          processing: false
+                        });
+                        if (this.autoScroll) {
+                          this.scrollToBottom();
+                        }
+                        continue;
+                      }
+
+                      if (data.text) {
+                        this.streamingMessage += data.text;
+                        if (this.autoScroll) {
+                          this.scrollToBottom();
+                        }
+                      }
+
+                      if (data.status === 'complete') {
+                        // Add assistant message to history
+                        this.messages.push({
+                          id: `msg_${Date.now()}`,
+                          role: 'assistant',
+                          content: this.streamingMessage,
+                          timestamp: { _seconds: Math.floor(Date.now() / 1000) }
+                        });
+                        this.messageCount++;
+                        this.streamingMessage = '';
+                      }
+
+                      if (data.error) {
+                        console.error('Streaming error:', data.error);
+                        this.streamingMessage = '';
+                      }
+                    } catch (parseError) {
+                      console.warn('Failed to parse SSE data:', line, parseError);
                     }
-                  }
-
-                  if (data.status === 'complete') {
-                    // Add assistant message to history
-                    this.messages.push({
-                      id: `msg_${Date.now()}`,
-                      role: 'assistant',
-                      content: this.streamingMessage,
-                      timestamp: { _seconds: Math.floor(Date.now() / 1000) }
-                    });
-                    this.messageCount++;
-                    this.streamingMessage = '';
-                  }
-
-                  if (data.error) {
-                    console.error('Streaming error:', data.error);
-                    this.streamingMessage = '';
                   }
                 }
               }
@@ -385,6 +486,14 @@ block content
           } else {
             // Shift+Enter = new line (default behavior)
           }
+        },
+
+        autoResizeTextarea(event) {
+          const textarea = event.target;
+          // Reset height to auto to get correct scrollHeight
+          textarea.style.height = 'auto';
+          // Set height to scrollHeight, capped at max-height (96px = ~3 lines)
+          textarea.style.height = Math.min(textarea.scrollHeight, 96) + 'px';
         },
 
         scrollToBottom() {
@@ -522,6 +631,61 @@ block content
             console.error('Approval failed:', error);
             alert('Failed to approve modification. Please try again.');
             approval.processing = false;
+          }
+        },
+
+        async batchApproveAll() {
+          if (this.pendingApprovals.length < 2 || this.batchApproving) return;
+
+          this.batchApproving = true;
+
+          try {
+            const modIds = this.pendingApprovals.map(a => a.modId);
+            const response = await fetch('/dashboard/api/chat/approve-batch', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({ modIds })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+              const fileCount = this.pendingApprovals.length;
+              const fileList = this.pendingApprovals.map(a => `\`${a.filePath}\``).join(', ');
+
+              // Clear all pending approvals
+              this.pendingApprovals = [];
+
+              // Build success message
+              let message = `**${fileCount} files committed in a single commit.**\n\nFiles: ${fileList}\n\nCommit: \`${result.commitSha?.substring(0, 7) || 'unknown'}\``;
+
+              // Add build info if triggered
+              if (result.build?.triggered) {
+                message += `\n\n**Build triggered:** [View build logs](${result.build.logUrl})`;
+              } else if (result.build?.reason) {
+                message += `\n\n*Build not triggered: ${result.build.reason}*`;
+              }
+
+              // Add success message to chat
+              this.messages.push({
+                id: `msg_${Date.now()}`,
+                role: 'assistant',
+                content: message,
+                timestamp: { _seconds: Math.floor(Date.now() / 1000) }
+              });
+              this.messageCount++;
+              this.scrollToBottom();
+            } else {
+              alert(`Failed to approve batch: ${result.error || 'Unknown error'}`);
+            }
+          } catch (error) {
+            console.error('Batch approval failed:', error);
+            alert('Failed to approve modifications. Please try again.');
+          } finally {
+            this.batchApproving = false;
           }
         },
 

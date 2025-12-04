@@ -145,6 +145,15 @@ block content
                     span(x-text="formatDate(commit.date)")
                     span.text-gray-300 |
                     code.text-xs.bg-gray-200.px-1.rounded(x-text="commit.sha.substring(0, 7)")
+                //- Revert button
+                button.flex-shrink-0.px-2.py-1.text-xs.text-red-600.border.border-red-300.rounded(
+                  @click="revertCommit(commit.sha)"
+                  :disabled="revertingCommit === commit.sha"
+                  class="hover:bg-red-50 disabled:opacity-50"
+                  title="Revert this commit"
+                )
+                  span(x-show="revertingCommit !== commit.sha") Revert
+                  span(x-show="revertingCommit === commit.sha" x-cloak) Reverting...
 
       //- Right Column: Cloud Builds + Session Info + Pending Modifications
       .space-y-6
@@ -222,72 +231,6 @@ block content
                   .text-xs.text-gray-400.mt-1
                     span Commit:
                     code.bg-gray-200.px-1.rounded(x-text="build.commitSha?.substring(0, 7)")
-
-        //- Active Session Card
-        .bg-white.rounded-lg.shadow.p-6
-          h2.text-xl.font-semibold.text-gray-900.mb-4 Session Info
-
-          template(x-if="!session")
-            .text-center.py-6.text-gray-500
-              svg.w-12.h-12.mx-auto.mb-3.text-gray-400(fill="none" stroke="currentColor" viewBox="0 0 24 24")
-                path(stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10")
-              p Enable Build Mode to start a session
-
-          template(x-if="session")
-            .space-y-3
-              .flex.justify-between
-                span.text-gray-600 Session ID
-                code.text-sm.bg-gray-100.px-2.rounded(class="py-0.5" x-text="session.sessionId?.substring(0, 8) + '...'")
-              .flex.justify-between
-                span.text-gray-600 Status
-                span.px-2.text-sm.rounded-full(
-                  class="py-0.5"
-                  :class="session.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'"
-                  x-text="session.status"
-                )
-              .flex.justify-between
-                span.text-gray-600 Branch
-                span.font-medium(x-text="session.branch")
-              .flex.justify-between
-                span.text-gray-600 Commits
-                span.font-medium(x-text="session.commits?.length || 0")
-              .flex.justify-between
-                span.text-gray-600 Files Modified
-                span.font-medium(x-text="session.files?.length || 0")
-
-        //- Pending Modifications Card
-        .bg-white.rounded-lg.shadow.p-6
-          .flex.items-center.justify-between.mb-4
-            h2.text-xl.font-semibold.text-gray-900 Pending Changes
-            span.text-sm.bg-yellow-100.text-yellow-800.px-2.rounded-full(
-              class="py-0.5"
-              x-show="pendingModifications.length > 0"
-              x-text="pendingModifications.length"
-            )
-
-          template(x-if="pendingModifications.length === 0")
-            .text-center.py-6.text-gray-500
-              p No pending modifications
-
-          .space-y-3
-            template(x-for="mod in pendingModifications" :key="mod.id")
-              .p-3.border.border-yellow-200.bg-yellow-50.rounded-lg
-                .flex.items-center.justify-between.mb-2
-                  span.font-medium.text-gray-900.truncate(x-text="mod.filePath")
-                  span.text-xs.px-2.rounded-full(
-                    class="py-0.5"
-                    :class="{'bg-green-100 text-green-800': mod.operation === 'create', 'bg-blue-100 text-blue-800': mod.operation === 'update', 'bg-red-100 text-red-800': mod.operation === 'delete'}"
-                    x-text="mod.operation"
-                  )
-                .flex.gap-2.mt-2
-                  button.flex-1.px-3.py-1.bg-green-500.text-white.text-sm.rounded.transition-colors(
-                    @click="approveMod(mod.id)"
-                    class="hover:bg-green-600"
-                  ) Approve
-                  button.flex-1.px-3.py-1.bg-red-500.text-white.text-sm.rounded.transition-colors(
-                    @click="rejectMod(mod.id)"
-                    class="hover:bg-red-600"
-                  ) Reject
 
     //- New Branch Modal
     div(
@@ -380,8 +323,7 @@ block content
         deployedBranch: 'main',  // Track what's currently deployed
         branches: [],
         commits: [],
-        session: null,
-        pendingModifications: [],
+        revertingCommit: null,
 
         // Cloud Build state
         cloudBuilds: [],
@@ -415,8 +357,6 @@ block content
               }
             }
             await this.loadCommits();
-            await this.loadSession();
-            await this.loadModifications();
           }
           // Load cloud builds regardless of GitHub connection
           await this.loadCloudBuildConfig();
@@ -503,34 +443,11 @@ block content
 
         async loadCommits() {
           try {
-            const response = await fetch(`/api/build/github/commits/${this.currentBranch}?limit=10`, { credentials: 'same-origin' });
+            // URL-encode branch name to handle slashes (e.g., bugfixes/feature-name)
+            const response = await fetch(`/api/build/github/commits/${encodeURIComponent(this.currentBranch)}?limit=10`, { credentials: 'same-origin' });
             const data = await response.json();
             if (data.success) {
               this.commits = data.commits || [];
-            }
-          } catch (e) {
-            // Ignore
-          }
-        },
-
-        async loadSession() {
-          try {
-            const response = await fetch('/api/build/session', { credentials: 'same-origin' });
-            const data = await response.json();
-            if (data.success) {
-              this.session = data.session;
-            }
-          } catch (e) {
-            // Ignore
-          }
-        },
-
-        async loadModifications() {
-          try {
-            const response = await fetch('/api/build/modifications', { credentials: 'same-origin' });
-            const data = await response.json();
-            if (data.success) {
-              this.pendingModifications = (data.modifications || []).filter(m => !m.userApproved && !m.rejected);
             }
           } catch (e) {
             // Ignore
@@ -551,9 +468,7 @@ block content
               body: JSON.stringify({ branch: this.currentBranch })
             });
             const data = await response.json();
-            if (data.success) {
-              await this.loadSession();
-            } else {
+            if (!data.success) {
               this.buildModeEnabled = !this.buildModeEnabled;
               alert(data.error || 'Failed to toggle build mode');
             }
@@ -583,6 +498,41 @@ block content
             }
           } catch (e) {
             alert('Failed to switch branch');
+          }
+        },
+
+        async revertCommit(sha) {
+          if (this.revertingCommit) return;
+
+          const confirmMsg = `Are you sure you want to revert commit ${sha.substring(0, 7)}?\n\nThis will create a new commit that undoes the changes from that commit.`;
+          if (!confirm(confirmMsg)) return;
+
+          this.revertingCommit = sha;
+          try {
+            const response = await fetch('/api/build/github/revert', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                sha: sha,
+                branch: this.currentBranch
+              })
+            });
+            const data = await response.json();
+            if (data.success) {
+              alert(`Commit reverted successfully!\n\nRevert commit: ${data.revertCommit.sha.substring(0, 7)}\nFiles reverted: ${data.filesReverted.join(', ')}`);
+              // Reload commits to show the revert commit
+              await this.loadCommits();
+            } else {
+              alert(data.error || 'Failed to revert commit');
+            }
+          } catch (e) {
+            alert('Failed to revert commit: ' + e.message);
+          } finally {
+            this.revertingCommit = null;
           }
         },
 
@@ -644,52 +594,6 @@ block content
             }
           } catch (e) {
             alert('Failed to merge branches');
-          }
-        },
-
-        async approveMod(modId) {
-          try {
-            const response = await fetch(`/api/build/modifications/${modId}/approve`, {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': window.csrfToken
-              }
-            });
-            const data = await response.json();
-            if (data.success) {
-              await this.loadModifications();
-              await this.loadSession();
-              await this.loadCommits();
-            } else {
-              alert(data.error || 'Failed to approve modification');
-            }
-          } catch (e) {
-            alert('Failed to approve modification');
-          }
-        },
-
-        async rejectMod(modId) {
-          const reason = prompt('Rejection reason (optional):');
-          try {
-            const response = await fetch(`/api/build/modifications/${modId}/reject`, {
-              method: 'POST',
-              credentials: 'same-origin',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': window.csrfToken
-              },
-              body: JSON.stringify({ reason })
-            });
-            const data = await response.json();
-            if (data.success) {
-              await this.loadModifications();
-            } else {
-              alert(data.error || 'Failed to reject modification');
-            }
-          } catch (e) {
-            alert('Failed to reject modification');
           }
         },
 

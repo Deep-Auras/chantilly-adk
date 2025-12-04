@@ -205,6 +205,28 @@ async function handleMessageAdd(req, res) {
       error: error.message,
       messageId: messageData.messageId
     });
+
+    // Send user-friendly error message to Bitrix24 chat
+    let userMessage = 'Sorry, I encountered an error processing your message.';
+    if (error.message?.includes('503') || error.message?.includes('overloaded')) {
+      userMessage = 'The AI service is temporarily overloaded. Please try again in a few moments.';
+    } else if (error.message?.includes('429') || error.message?.includes('quota')) {
+      userMessage = 'Too many requests. Please wait a moment before trying again.';
+    }
+
+    try {
+      const queue = getQueueManager();
+      await queue.add({
+        method: 'imbot.message.add',
+        params: {
+          DIALOG_ID: messageData.dialogId || messageData.chatId,
+          MESSAGE: `❌ ${userMessage}`
+        }
+      });
+    } catch (sendError) {
+      logger.error('Failed to send error message to user', { error: sendError.message });
+    }
+
     res.status(500).json({ error: 'Failed to process message' });
   }
 }

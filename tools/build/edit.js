@@ -150,6 +150,9 @@ class Edit extends BaseTool {
         new_string
       );
 
+      // Generate diff for preview
+      const diff = this.generateContextDiff(beforeContent, old_string, new_string);
+
       // Create modification record
       const modRef = db.collection('code-modifications').doc();
       await modRef.set({
@@ -164,6 +167,7 @@ class Edit extends BaseTool {
         oldString: old_string,
         newString: new_string,
         replacementCount: expected_replacements,
+        diff,
         userApproved: false,
         toolName: this.name,
         createdAt: FieldValue.serverTimestamp()
@@ -176,9 +180,10 @@ class Edit extends BaseTool {
           status: 'pending_approval',
           modId: modRef.id,
           filePath: file_path,
+          operation: 'update',
           replacementCount: expected_replacements,
           message: 'Edit request created. Waiting for user approval.',
-          diff: this.generateContextDiff(beforeContent, old_string, new_string)
+          diff
         };
       }
 
@@ -245,21 +250,54 @@ class Edit extends BaseTool {
   }
 
   generateContextDiff(content, oldStr, newStr) {
-    const lines = content.split('\n');
-    const diff = [];
-
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(oldStr)) {
-        // Show context
-        if (i > 0) diff.push(`  ${i}: ${lines[i - 1]}`);
-        diff.push(`- ${i + 1}: ${lines[i]}`);
-        diff.push(`+ ${i + 1}: ${lines[i].replace(oldStr, newStr)}`);
-        if (i < lines.length - 1) diff.push(`  ${i + 2}: ${lines[i + 1]}`);
-        diff.push('---');
-      }
+    // Find the position of oldStr in content to get line numbers
+    const startIndex = content.indexOf(oldStr);
+    if (startIndex === -1) {
+      // Fallback: show the replacement strings directly
+      const oldLines = oldStr.split('\n');
+      const newLines = newStr.split('\n');
+      const diff = [];
+      diff.push('--- Before');
+      oldLines.slice(0, 15).forEach(l => diff.push(`- ${l}`));
+      if (oldLines.length > 15) diff.push('- ... (truncated)');
+      diff.push('+++ After');
+      newLines.slice(0, 15).forEach(l => diff.push(`+ ${l}`));
+      if (newLines.length > 15) diff.push('+ ... (truncated)');
+      return diff.join('\n');
     }
 
-    return diff.slice(0, 30).join('\n');
+    // Calculate line number where change starts
+    const beforeChange = content.substring(0, startIndex);
+    const startLine = beforeChange.split('\n').length;
+
+    // Build diff showing old vs new
+    const oldLines = oldStr.split('\n');
+    const newLines = newStr.split('\n');
+    const diff = [];
+
+    // Show context before (1 line)
+    const allLines = content.split('\n');
+    if (startLine > 1) {
+      diff.push(`  ${startLine - 1}: ${allLines[startLine - 2]}`);
+    }
+
+    // Show removed lines
+    oldLines.forEach((line, i) => {
+      diff.push(`- ${startLine + i}: ${line}`);
+    });
+
+    // Show added lines
+    newLines.forEach((line, i) => {
+      diff.push(`+ ${startLine + i}: ${line}`);
+    });
+
+    // Show context after (1 line)
+    const endLine = startLine + oldLines.length - 1;
+    if (endLine < allLines.length) {
+      diff.push(`  ${endLine + 1}: ${allLines[endLine]}`);
+    }
+
+    return diff.slice(0, 40).join('\n') + (diff.length > 40 ? '\n... (truncated)' : '');
   }
 }
 
