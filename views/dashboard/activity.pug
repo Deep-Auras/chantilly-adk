@@ -189,7 +189,8 @@ block content
             date = new Date(timestamp);
           }
 
-          return date.toLocaleString();
+          // Use UTC to match server-side formatting on Cloud Run
+          return date.toLocaleString('en-US', { timeZone: 'UTC' });
         },
 
         formatAction(action) {
