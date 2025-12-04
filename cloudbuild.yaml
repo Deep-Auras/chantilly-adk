@@ -1,9 +1,22 @@
 # Google Cloud Build configuration for Chantilly Agent Development Kit
 steps:
+  # Deploy Firestore indexes (runs in parallel with Docker build)
+  - name: 'gcr.io/firebase-tools:latest'
+    args:
+      - 'firebase'
+      - 'deploy'
+      - '--only'
+      - 'firestore:indexes'
+      - '--project=$PROJECT_ID'
+      - '--non-interactive'
+    id: 'deploy-indexes'
+    waitFor: ['-']  # Start immediately, runs in parallel
+
   # Build Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/$PROJECT_ID/chantilly-adk:$BUILD_ID', '.']
     id: 'build'
+    waitFor: ['-']  # Start immediately, runs in parallel with index deployment
 
   # Push image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'

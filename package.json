@@ -22,7 +22,7 @@
     "bot:check": "node scripts/checkBot.js",
     "build": "echo 'No build step required for Node.js application'",
     "validate": "npm run lint && npm run test && npm run security:check",
-    "deploy:indexes": "gcloud firestore indexes create firestore.indexes.json --project=$GOOGLE_CLOUD_PROJECT",
+    "deploy:indexes": "firebase deploy --only firestore:indexes",
     "memory:init": "node scripts/initializeMemorySystem.js",
     "memory:stats": "node scripts/memoryStats.js",
     "memory:validate": "node scripts/validateVectorSearch.js",

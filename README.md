@@ -19,12 +19,18 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
 
 ### Prerequisites
 
-- Google Cloud Project
-- GitHub repository with your code
+1. Github Account
+2. Google Cloud Account & Project
+3. Gemini
 
 ### Cloud Run Deployment
 
-#### 1. Enable Required APIs
+#### 1. Fork this Repository
+1. Click the Fork Button
+2. Take note of the Owner / Organization
+3. Name the fork appropriately
+
+#### 2. Enable Required APIs
 
 Go to [Google Cloud Console](https://console.cloud.google.com) and enable:
 
@@ -37,7 +43,7 @@ Go to [Google Cloud Console](https://console.cloud.google.com) and enable:
 | [Cloud Logging](https://console.cloud.google.com/apis/library/logging.googleapis.com) | Application logs |
 | [Vertex AI](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com) | Embeddings |
 
-#### 2. Create Firestore Database
+#### 3. Create Firestore Database
 
 1. Go to [Firestore Console](https://console.cloud.google.com/firestore)
 2. Click **"Create database"**
@@ -45,26 +51,32 @@ Go to [Google Cloud Console](https://console.cloud.google.com) and enable:
 4. Location: **us-central1**
 5. Click **Create**
 
-#### 3. Grant Service Account Roles
+#### 4. Grant Service Account Roles
 
-The default compute service account needs additional permissions:
+Two service accounts need additional permissions:
 
+**A. Cloud Build Service Account** (for CI/CD and index deployment):
 1. Go to [IAM & Admin](https://console.cloud.google.com/iam-admin/iam)
-2. Find `PROJECT_NUMBER-compute@developer.gserviceaccount.com`
-3. Click **Edit** (pencil icon)
-4. Add these roles:
+2. Find `PROJECT_NUMBER@cloudbuild.gserviceaccount.com`
+3. Add these roles:
+   - **Cloud Datastore Owner** - Firestore index deployment
+   - **Firebase Admin** - Firebase CLI access
+
+**B. Compute Engine Service Account** (for Cloud Run runtime):
+1. Find `PROJECT_NUMBER-compute@developer.gserviceaccount.com`
+2. Add these roles:
    - **Cloud Datastore Owner** - Firestore access
    - **Vertex AI User** - Embeddings
    - **Cloud Build Editor** - Trigger deployments (if using Build Mode)
    - **Storage Object Admin** - File uploads (if using diagram tool)
-5. Click **Save**
+3. Click **Save**
 
-#### 4. Deploy to Cloud Run
+#### 5. Deploy to Cloud Run
 
 1. Go to [Cloud Run Console](https://console.cloud.google.com/run)
 2. Click **"Create Service"**
 3. Select **"Continuously deploy from a repository"**
-4. Connect your GitHub repository
+4. Connect your forked GitHub repository
 5. Configure:
    - Region: `us-central1`
    - Min instances: `1`
@@ -72,7 +84,7 @@ The default compute service account needs additional permissions:
    - Allow unauthenticated invocations: **Yes**
 6. Click **Create**
 
-#### 5. Complete Setup Wizard
+#### 6. Complete Setup Wizard
 
 1. Wait for deployment (~2-3 min)
 2. Open the Cloud Run service URL
@@ -82,11 +94,13 @@ The default compute service account needs additional permissions:
    - Add Gemini API key
    - Review & confirm
 
-#### 6. Deploy Firestore Indexes (one-time)
+#### 7. Firestore Indexes (Automatic)
 
-```bash
-npm run deploy:indexes
-```
+Firestore indexes are required for vector search and optimized queries. **Indexes are deployed automatically during Cloud Build** - no manual steps required.
+
+The build process runs `firebase deploy --only firestore:indexes` in parallel with the Docker build, using the index definitions in `firestore.indexes.json`.
+
+**First Deployment Note**: After the first build, indexes may take 5-10 minutes to finish building. Check status in [Firestore Console](https://console.cloud.google.com/firestore/indexes) under **Indexes**. Subsequent deployments only update changed indexes.
 
 ---
 
@@ -204,8 +218,9 @@ npm run dev           # Development server
 npm test              # Run tests
 npm run lint          # ESLint check
 npm run validate      # Full validation
-npm run deploy:indexes # Deploy Firestore indexes
 ```
+
+> **Note**: Firestore indexes are deployed automatically during Cloud Build. See step 7 above.
 
 ---
 
