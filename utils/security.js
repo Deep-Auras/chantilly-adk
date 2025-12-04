@@ -54,6 +54,9 @@ class SecurityUtils {
     return sanitized;
   }
 
+  // Fields that should NOT be sanitized (passwords are hashed, not displayed)
+  static SKIP_SANITIZE_FIELDS = ['password', 'currentPassword', 'newPassword', 'confirmPassword'];
+
   // Deep sanitize objects recursively
   static sanitizeObject(obj, maxDepth = 10) {
     if (maxDepth <= 0) {
@@ -75,7 +78,13 @@ class SecurityUtils {
       if (keyCount >= 1000) {break;} // Prevent DoS with large objects
 
       const sanitizedKey = this.sanitizeString(key);
-      sanitized[sanitizedKey] = this.sanitizeObject(value, maxDepth - 1);
+
+      // Skip sanitization for password fields - they are hashed, never displayed
+      if (this.SKIP_SANITIZE_FIELDS.includes(key)) {
+        sanitized[sanitizedKey] = value;
+      } else {
+        sanitized[sanitizedKey] = this.sanitizeObject(value, maxDepth - 1);
+      }
       keyCount++;
     }
 

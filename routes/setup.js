@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const { logger } = require('../utils/logger');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { sanitizeInput } = require('../middleware/auth');
+const { reinitializeAuthService } = require('../services/auth');
 
 const router = express.Router();
 
@@ -129,7 +130,7 @@ router.get('/', async (req, res) => {
 /**
  * POST /setup/complete - Complete setup wizard
  */
-router.post('/complete', express.json(), async (req, res) => {
+router.post('/complete', async (req, res) => {
   try {
     // Verify setup is still needed
     const setupNeeded = await isSetupNeeded();
@@ -326,6 +327,16 @@ router.post('/complete', express.json(), async (req, res) => {
     }
 
     logger.info('Platform configurations initialized');
+
+    // Reinitialize auth service now that jwtSecret exists
+    // This is critical for fresh deployments where auth service failed to initialize at startup
+    try {
+      await reinitializeAuthService();
+      logger.info('Auth service reinitialized after setup');
+    } catch (authError) {
+      logger.error('Failed to reinitialize auth service', { error: authError.message });
+      // Don't fail setup, but log the error - user may need to restart the service
+    }
 
     // Success response
     res.json({
