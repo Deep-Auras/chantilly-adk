@@ -2023,6 +2023,7 @@ Return only the JSON object with detected parameters:`;
       // ✅ PHASE 2.1: Retrieve relevant memories for generation
       let memoryContext = '';
       let usedMemoryIds = [];
+      const config = require('../config/env');
 
       if (config.REASONING_MEMORY_ENABLED) {
         try {
@@ -3305,6 +3306,7 @@ DETECTED MODIFICATION INTENT (from AI analysis):
       // ✅ PHASE 2.2: Retrieve memories about similar modifications
       let modificationMemoryContext = '';
       let usedMemoryIds = [];
+      const config = require('../config/env');
 
       if (config.REASONING_MEMORY_ENABLED) {
         try {

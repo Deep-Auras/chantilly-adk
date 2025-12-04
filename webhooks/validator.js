@@ -263,7 +263,7 @@ async function validateWebhookSignature(req) {
       providedSecretLength: providedSecret.length,
       expectedSecretPrefix: expectedSecret.substring(0, 10) + '...',
       providedSecretPrefix: providedSecret.substring(0, 10) + '...',
-      secretType: isLocalAppEvent ? 'APP_SECRET' : 'OUTBOUND_SECRET'
+      secretType: 'OUTBOUND_SECRET'
     });
   } else {
     logger.info('Webhook signature validation successful');

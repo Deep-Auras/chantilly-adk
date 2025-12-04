@@ -118,18 +118,11 @@ block content
             if (response.ok) {
               const data = await response.json();
               this.logs = data.activities || [];
-              console.log('Activity logs loaded:', this.logs.length, 'entries');
-              if (this.logs.length > 0) {
-                console.log('Sample log timestamp:', this.logs[0].timestamp);
-              }
 
               // Extract unique users for filter
               this.uniqueUsers = [...new Set(this.logs.map(l => l.username).filter(u => u))];
 
               this.filter();
-              console.log('After filter:', this.filteredLogs.length, 'entries (filter:', this.filterTimeRange, ')');
-            } else {
-              console.error('Activity API failed:', response.status, response.statusText);
             }
           } catch (error) {
             console.error('Failed to load activity logs:', error);
